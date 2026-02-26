@@ -1,0 +1,76 @@
+# Alhazen Skill Examples — full stack demo
+# Usage: cd demo && docker compose up
+#
+# Starts TypeDB + the skill dashboard at http://localhost:3000
+# Make sure you've run `make demo-sync` from the repo root first.
+
+services:
+  typedb:
+    image: vaticle/typedb:2.25.0
+    platform: linux/amd64
+    container_name: alhazen-examples-typedb
+    ports:
+      - "127.0.0.1:1729:1729"
+    volumes:
+      - typedb-data:/opt/typedb-all-linux-x86_64/server/data
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'database list' | /opt/typedb-all-linux-x86_64/typedb console --server=localhost:1729 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - alhazen-network
+
+  typedb-init:
+    image: vaticle/typedb:2.25.0
+    platform: linux/amd64
+    container_name: alhazen-examples-typedb-init
+    depends_on:
+      typedb:
+        condition: service_healthy
+    volumes:
+      - ../skills/demo/jobhunt/schema.tql:/schema/jobhunt.tql:ro
+    networks:
+      - alhazen-network
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Creating database..."
+        echo "database create alhazen_notebook" | /opt/typedb-all-linux-x86_64/typedb console --server=typedb:1729 2>/dev/null || true
+
+        echo "Loading jobhunt schema..."
+        echo "transaction alhazen_notebook schema write
+        source /schema/jobhunt.tql
+        commit" | /opt/typedb-all-linux-x86_64/typedb console --server=typedb:1729
+
+        echo "Schema initialization complete!"
+    restart: "no"
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: demo/Dockerfile
+    container_name: alhazen-examples-dashboard
+    depends_on:
+      typedb:
+        condition: service_healthy
+    environment:
+      - TYPEDB_HOST=typedb
+      - TYPEDB_PORT=1729
+      - TYPEDB_DATABASE=alhazen_notebook
+      - SKILL_ROOT=/app/skills/demo/jobhunt
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    networks:
+      - alhazen-network
+
+volumes:
+  typedb-data:
+    driver: local
+
+networks:
+  alhazen-network:
+    driver: bridge
