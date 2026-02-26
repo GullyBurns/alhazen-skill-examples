@@ -4,10 +4,10 @@ import path from 'path';
 
 const execFileAsync = promisify(execFile);
 
-// SKILL_ROOT: absolute path to the skill directory (used in standalone demo)
+// JOBHUNT_SKILL_ROOT: absolute path to the jobhunt skill directory (used in standalone demo)
 // PROJECT_ROOT: absolute path to skillful-alhazen root (used when installed)
 // NOTEBOOK_SCRIPT_PATH: override for typedb_notebook.py location
-const SKILL_ROOT = process.env.SKILL_ROOT;
+const SKILL_ROOT = process.env.JOBHUNT_SKILL_ROOT;
 const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(process.cwd());
 
 const JOBHUNT_SCRIPT = SKILL_ROOT

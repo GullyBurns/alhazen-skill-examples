@@ -32,6 +32,7 @@ services:
         condition: service_healthy
     volumes:
       - ../skills/demo/jobhunt/schema.tql:/schema/jobhunt.tql:ro
+      - ../skills/demo/techrecon/schema.tql:/schema/techrecon.tql:ro
     networks:
       - alhazen-network
     entrypoint: ["/bin/bash", "-c"]
@@ -43,6 +44,11 @@ services:
         echo "Loading jobhunt schema..."
         echo "transaction alhazen_notebook schema write
         source /schema/jobhunt.tql
+        commit" | /opt/typedb-all-linux-x86_64/typedb console --server=typedb:1729
+
+        echo "Loading techrecon schema..."
+        echo "transaction alhazen_notebook schema write
+        source /schema/techrecon.tql
         commit" | /opt/typedb-all-linux-x86_64/typedb console --server=typedb:1729
 
         echo "Schema initialization complete!"
@@ -60,7 +66,8 @@ services:
       - TYPEDB_HOST=typedb
       - TYPEDB_PORT=1729
       - TYPEDB_DATABASE=alhazen_notebook
-      - SKILL_ROOT=/app/skills/demo/jobhunt
+      - JOBHUNT_SKILL_ROOT=/app/skills/demo/jobhunt
+      - TECHRECON_SKILL_ROOT=/app/skills/demo/techrecon
     ports:
       - "127.0.0.1:3000:3000"
     restart: unless-stopped

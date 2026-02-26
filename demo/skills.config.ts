@@ -15,4 +15,10 @@ export const installedSkills: SkillConfig[] = [
     path: "/jobhunt",
     category: "demo",
   },
+  {
+    name: "Tech Recon",
+    description: "Systematically investigate external software systems, libraries, frameworks, and computational tools.",
+    path: "/techrecon",
+    category: "demo",
+  },
 ];

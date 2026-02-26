@@ -39,6 +39,23 @@ demo-sync:
 	@rm -f $(DEMO_DIR)/src/lib/jobhunt.ts
 	@ln -s ../../../$(SKILLS_DIR)/demo/jobhunt/dashboard/lib.ts $(DEMO_DIR)/src/lib/jobhunt.ts
 
+	@# techrecon skill
+	@echo "  [techrecon] components -> demo/src/components/techrecon"
+	@rm -f $(DEMO_DIR)/src/components/techrecon
+	@ln -s ../../../$(SKILLS_DIR)/demo/techrecon/dashboard/components $(DEMO_DIR)/src/components/techrecon
+
+	@echo "  [techrecon] routes -> demo/src/app/api/techrecon"
+	@rm -f $(DEMO_DIR)/src/app/api/techrecon
+	@ln -s ../../../../$(SKILLS_DIR)/demo/techrecon/dashboard/routes $(DEMO_DIR)/src/app/api/techrecon
+
+	@echo "  [techrecon] pages -> demo/src/app/(techrecon)"
+	@rm -f $(DEMO_DIR)/src/app/\(techrecon\)
+	@ln -s ../../../$(SKILLS_DIR)/demo/techrecon/dashboard/pages $(DEMO_DIR)/src/app/\(techrecon\)
+
+	@echo "  [techrecon] lib.ts -> demo/src/lib/techrecon.ts"
+	@rm -f $(DEMO_DIR)/src/lib/techrecon.ts
+	@ln -s ../../../$(SKILLS_DIR)/demo/techrecon/dashboard/lib.ts $(DEMO_DIR)/src/lib/techrecon.ts
+
 	@echo "Done. Run: cd demo && docker compose up"
 
 demo-clean:
@@ -47,6 +64,10 @@ demo-clean:
 	@rm -f $(DEMO_DIR)/src/app/api/jobhunt
 	@rm -f $(DEMO_DIR)/src/app/\(jobhunt\)
 	@rm -f $(DEMO_DIR)/src/lib/jobhunt.ts
+	@rm -f $(DEMO_DIR)/src/components/techrecon
+	@rm -f $(DEMO_DIR)/src/app/api/techrecon
+	@rm -f $(DEMO_DIR)/src/app/\(techrecon\)
+	@rm -f $(DEMO_DIR)/src/lib/techrecon.ts
 	@echo "Done."
 
 demo-build:

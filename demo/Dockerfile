@@ -11,11 +11,16 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
 # ==============================================================================
-# Stage 2: Install Python deps for jobhunt skill
+# Stage 2: Install Python deps for each skill
 # ==============================================================================
-FROM python-base AS python-deps
+FROM python-base AS python-deps-jobhunt
 WORKDIR /app/skills/demo/jobhunt
 COPY skills/demo/jobhunt/pyproject.toml ./
+RUN uv sync --no-dev
+
+FROM python-base AS python-deps-techrecon
+WORKDIR /app/skills/demo/techrecon
+COPY skills/demo/techrecon/pyproject.toml ./
 RUN uv sync --no-dev
 
 # ==============================================================================
@@ -42,6 +47,11 @@ COPY skills/demo/jobhunt/dashboard/routes ./src/app/api/jobhunt
 COPY skills/demo/jobhunt/dashboard/pages ./src/app/(jobhunt)
 COPY skills/demo/jobhunt/dashboard/lib.ts ./src/lib/jobhunt.ts
 
+COPY skills/demo/techrecon/dashboard/components ./src/components/techrecon
+COPY skills/demo/techrecon/dashboard/routes ./src/app/api/techrecon
+COPY skills/demo/techrecon/dashboard/pages ./src/app/(techrecon)
+COPY skills/demo/techrecon/dashboard/lib.ts ./src/lib/techrecon.ts
+
 RUN npm run build
 
 # ==============================================================================
@@ -62,14 +72,16 @@ ENV PATH="/root/.local/bin:$PATH"
 
 WORKDIR /app
 
-# Copy Python environment
-COPY --from=python-deps /app/skills/demo/jobhunt/.venv ./skills/demo/jobhunt/.venv
+# Copy Python environments
+COPY --from=python-deps-jobhunt /app/skills/demo/jobhunt/.venv ./skills/demo/jobhunt/.venv
 COPY skills/demo/jobhunt/pyproject.toml ./skills/demo/jobhunt/
-
-# Copy Python scripts
 COPY skills/demo/jobhunt/jobhunt.py ./skills/demo/jobhunt/
 COPY skills/demo/jobhunt/job_forager.py ./skills/demo/jobhunt/
 COPY skills/demo/jobhunt/job_triage.py ./skills/demo/jobhunt/
+
+COPY --from=python-deps-techrecon /app/skills/demo/techrecon/.venv ./skills/demo/techrecon/.venv
+COPY skills/demo/techrecon/pyproject.toml ./skills/demo/techrecon/
+COPY skills/demo/techrecon/techrecon.py ./skills/demo/techrecon/
 
 # Copy Node.js build
 COPY --from=node-builder /app/demo/.next ./.next
@@ -80,7 +92,8 @@ COPY --from=node-builder /app/demo/node_modules ./node_modules
 # Environment
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV SKILL_ROOT=/app/skills/demo/jobhunt
+ENV JOBHUNT_SKILL_ROOT=/app/skills/demo/jobhunt
+ENV TECHRECON_SKILL_ROOT=/app/skills/demo/techrecon
 ENV TYPEDB_HOST=typedb
 ENV TYPEDB_PORT=1729
 ENV TYPEDB_DATABASE=alhazen_notebook
