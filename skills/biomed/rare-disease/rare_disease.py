@@ -421,11 +421,8 @@ def cmd_ingest_phenotypes(args):
     disease_info = get_disease_info(args.disease)
     disease_name = disease_info.get("name", mondo_id) if disease_info else mondo_id
 
-    params = {
-        "category": "biolink:DiseaseToPhenotypicFeatureAssociation",
-        "limit": 500,
-    }
-    data = monarch_get(f"/entity/{mondo_id}/associations", params)
+    params = {"limit": 500}
+    data = monarch_get(f"/entity/{mondo_id}/biolink:DiseaseToPhenotypicFeatureAssociation", params)
     if "error" in data:
         print(json.dumps({"success": False, "error": data["error"]}))
         return
@@ -436,32 +433,45 @@ def cmd_ingest_phenotypes(args):
 
     with get_driver() as driver:
         for assoc in associations:
-            obj = assoc.get("object", {})
-            hpo_id = obj.get("id", "")
-            hpo_label = obj.get("label") or obj.get("name") or hpo_id
+            # Monarch API v3: object/subject are plain string IDs; labels are separate fields
+            hpo_id = assoc.get("object", "")
+            hpo_label = assoc.get("object_label") or hpo_id
 
             if not hpo_id or not hpo_id.startswith("HP:"):
                 skipped += 1
                 continue
 
-            # Map frequency qualifier
+            # Map frequency qualifier from HP code or percentage
             freq_qualifier = "unknown"
-            # Check qualifiers array
-            for q in (assoc.get("qualifiers") or []):
-                q_id = q.get("id", "") if isinstance(q, dict) else str(q)
-                if q_id in HPO_FREQUENCY_MAP:
-                    freq_qualifier = HPO_FREQUENCY_MAP[q_id]
-                    break
-            # Also check frequency_qualifier field directly
             fq = assoc.get("frequency_qualifier") or ""
             if fq in HPO_FREQUENCY_MAP:
                 freq_qualifier = HPO_FREQUENCY_MAP[fq]
-            elif fq and freq_qualifier == "unknown":
-                freq_qualifier = fq  # use as-is if not in our map
+            elif fq.startswith("HP:"):
+                freq_qualifier = fq  # unknown HP code, use as-is
+            else:
+                # Use has_percentage if available
+                pct = assoc.get("has_percentage")
+                if pct is not None:
+                    try:
+                        p = float(pct)
+                        if p >= 100:
+                            freq_qualifier = "obligate"
+                        elif p >= 80:
+                            freq_qualifier = "very-frequent"
+                        elif p >= 30:
+                            freq_qualifier = "frequent"
+                        elif p >= 5:
+                            freq_qualifier = "occasional"
+                        elif p >= 1:
+                            freq_qualifier = "rare"
+                        else:
+                            freq_qualifier = "very-rare"
+                    except (ValueError, TypeError):
+                        freq_qualifier = "unknown"
 
             evidence_code = ""
-            for ev in (assoc.get("evidence") or []):
-                evidence_code = ev.get("id", "") if isinstance(ev, dict) else str(ev)
+            for ev in (assoc.get("has_evidence") or []):
+                evidence_code = ev.get("id", ev) if isinstance(ev, dict) else str(ev)
                 break
 
             # Upsert phenotype entity
@@ -490,8 +500,8 @@ def cmd_ingest_phenotypes(args):
                     match
                         $d isa rd-disease, has id "{escape_string(args.disease)}";
                         $p isa rd-phenotype, has id "{phenotype_id}";
-                        $r (disease: $d, phenotype: $p) isa rd-disease-has-phenotype;
-                    fetch {{ "r": $r.id }};
+                        (disease: $d, phenotype: $p) isa rd-disease-has-phenotype;
+                    fetch {{ "disease_id": $d.id }};
                 ''').resolve())
 
             if not rel_exists:
@@ -518,7 +528,7 @@ def cmd_ingest_phenotypes(args):
         name=f"Phenotype associations: {disease_name}",
         content=json.dumps(data, indent=2),
         mime_type="application/json",
-        source_uri=f"{MONARCH_BASE_URL}/entity/{mondo_id}/associations?category=biolink:DiseaseToPhenotypicFeatureAssociation",
+        source_uri=f"{MONARCH_BASE_URL}/entity/{mondo_id}/biolink:DiseaseToPhenotypicFeatureAssociation",
     )
 
     print(json.dumps({
@@ -552,28 +562,26 @@ def cmd_ingest_genes(args):
     all_data = {}
 
     # Fetch both causal and correlated associations
-    for category, rel_type in [
+    for biolink_cat, rel_type in [
         ("biolink:CausalGeneToDiseaseAssociation", "causal"),
         ("biolink:CorrelatedGeneToDiseaseAssociation", "correlated"),
     ]:
-        params = {"category": category, "limit": 200}
-        data = monarch_get(f"/entity/{mondo_id}/associations", params)
+        params = {"limit": 200}
+        data = monarch_get(f"/entity/{mondo_id}/{biolink_cat}", params)
         if "error" in data:
             print(json.dumps({"success": False, "error": f"{rel_type}: {data['error']}"}))
             return
         all_data[rel_type] = data
 
         for assoc in data.get("items", []):
-            subj = assoc.get("subject", {})
-            gene_id_raw = subj.get("id", "")
-            gene_symbol = subj.get("symbol") or subj.get("label") or subj.get("name") or gene_id_raw
-            gene_name = subj.get("name") or gene_symbol
+            # Monarch API v3: subject/object are plain string IDs; labels are separate fields
+            gene_id_raw = assoc.get("subject", "")
+            gene_symbol = assoc.get("subject_label") or gene_id_raw
+            gene_name = gene_symbol
 
-            if not gene_id_raw or not gene_id_raw.startswith("HGNC:"):
-                # Try NCBIGene as fallback
-                if not gene_id_raw.startswith("NCBIGene:"):
-                    skipped += 1
-                    continue
+            if not gene_id_raw or not (gene_id_raw.startswith("HGNC:") or gene_id_raw.startswith("NCBIGene:")):
+                skipped += 1
+                continue
 
             # Extract IDs
             hgnc_id = gene_id_raw if gene_id_raw.startswith("HGNC:") else ""
@@ -655,7 +663,7 @@ def cmd_ingest_genes(args):
         name=f"Gene associations: {disease_name}",
         content=json.dumps(all_data, indent=2),
         mime_type="application/json",
-        source_uri=f"{MONARCH_BASE_URL}/entity/{mondo_id}/associations",
+        source_uri=f"{MONARCH_BASE_URL}/entity/{mondo_id}/associations-combined",
     )
 
     print(json.dumps({
