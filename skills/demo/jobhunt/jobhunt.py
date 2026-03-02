@@ -497,7 +497,7 @@ def cmd_update_status(args):
             old_note_id = existing[0].get("id", "")
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 tx.query(
-                    f'match $n isa note, has id "{old_note_id}"; delete $n isa note;'
+                    f'match $n isa note, has id "{old_note_id}"; delete $n;'
                 ).resolve()
                 tx.commit()
 
@@ -1387,7 +1387,7 @@ def cmd_add_skill(args):
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 tx.query(f'''match
                     $s isa your-skill, has skill-name "{escape_string(args.name)}";
-                delete $s isa your-skill;''').resolve()
+                delete $s;''').resolve()
                 tx.commit()
 
         # Create skill

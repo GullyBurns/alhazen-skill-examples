@@ -1272,7 +1272,7 @@ def cmd_remove_source(args):
                 del_rel = f'''match
                     $s isa jobhunt-search-source, has id "{source_id}";
                     $r (source: $s, candidate: $c) isa source-provides;
-                delete $r isa source-provides;'''
+                delete $r;'''
                 tx.query(del_rel).resolve()
                 tx.commit()
             except Exception:
@@ -1280,7 +1280,7 @@ def cmd_remove_source(args):
 
         # Delete the source
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-            tx.query(f'match {match_clause}; delete $s isa jobhunt-search-source;').resolve()
+            tx.query(f'match {match_clause}; delete $s;').resolve()
             tx.commit()
 
     print(json.dumps({
