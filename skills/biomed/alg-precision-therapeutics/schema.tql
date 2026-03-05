@@ -42,8 +42,8 @@ attribute apt-go-term, value string;
 # -----------------------------------------------------------------------------
 
 attribute apt-chromosome, value string;
-attribute apt-position-start, value long;
-attribute apt-position-end, value long;
+attribute apt-position-start, value integer;
+attribute apt-position-end, value integer;
 attribute apt-ref-allele, value string;
 attribute apt-alt-allele, value string;
 attribute apt-genome-build, value string;
