@@ -1,0 +1,480 @@
+# =============================================================================
+# ALGORITHM FOR PRECISION THERAPEUTICS - TypeDB 3.x Schema Extension
+# =============================================================================
+# Mechanism-centered rare disease investigation starting from a known MONDO ID.
+# Synthesizes mechanism of harm and therapeutic strategies from Monarch,
+# ClinicalTrials.gov, ChEMBL, and literature.
+#
+# Central innovation: apt-mechanism is a first-class entity linking
+# gene -> pathway -> phenotype -> drug.
+#
+# Namespace prefix: apt-*
+# =============================================================================
+
+define
+
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - Disease Identifiers
+# -----------------------------------------------------------------------------
+
+attribute apt-mondo-id, value string;
+attribute apt-omim-id, value string;
+attribute apt-orpha-id, value string;
+attribute apt-gard-id, value string;
+attribute apt-doid-id, value string;
+attribute apt-ncit-id, value string;
+
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - Gene / Protein
+# -----------------------------------------------------------------------------
+
+attribute apt-gene-symbol, value string;
+attribute apt-hgnc-id, value string;
+attribute apt-ensembl-id, value string;
+attribute apt-entrez-id, value string;
+attribute apt-uniprot-id, value string;
+attribute apt-protein-domain, value string;
+attribute apt-reactome-id, value string;
+attribute apt-go-term, value string;
+
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - Variant
+# -----------------------------------------------------------------------------
+
+attribute apt-chromosome, value string;
+attribute apt-position-start, value long;
+attribute apt-position-end, value long;
+attribute apt-ref-allele, value string;
+attribute apt-alt-allele, value string;
+attribute apt-genome-build, value string;
+attribute apt-hgvs-c, value string;
+attribute apt-hgvs-p, value string;
+attribute apt-hgvs-g, value string;
+attribute apt-acmg-class, value string;
+attribute apt-zygosity, value string;
+attribute apt-gnomad-af, value double;
+attribute apt-clinvar-id, value string;
+
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - Mechanism (first-class entity attributes)
+# -----------------------------------------------------------------------------
+
+attribute apt-mechanism-type, value string;
+attribute apt-mechanism-level, value string;
+attribute apt-therapeutic-addressability, value string;
+attribute apt-mechanism-evidence-strength, value string;
+attribute apt-functional-impact, value string;
+
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - Clinical / HPO
+# -----------------------------------------------------------------------------
+
+attribute apt-hpo-id, value string;
+attribute apt-hpo-label, value string;
+attribute apt-frequency-qualifier, value string;
+attribute apt-age-of-onset, value string;
+attribute apt-severity, value string;
+attribute apt-penetrance, value string;
+attribute apt-inheritance-pattern, value string;
+attribute apt-prevalence, value string;
+
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - Drug / Therapy
+# -----------------------------------------------------------------------------
+
+attribute apt-drugbank-id, value string;
+attribute apt-chembl-id, value string;
+attribute apt-drug-class, value string;
+attribute apt-mechanism-of-action, value string;
+attribute apt-development-stage, value string;
+attribute apt-therapeutic-modality, value string;
+attribute apt-therapeutic-approach, value string;
+attribute apt-target-type, value string;
+
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - Clinical Trials
+# -----------------------------------------------------------------------------
+
+attribute apt-nct-id, value string;
+attribute apt-trial-phase, value string;
+attribute apt-trial-status, value string;
+
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - Model Systems
+# -----------------------------------------------------------------------------
+
+attribute apt-model-type, value string;
+attribute apt-model-species, value string;
+attribute apt-phenotype-recapitulated, value string;
+
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - Investigation / Evidence
+# -----------------------------------------------------------------------------
+
+attribute apt-investigation-status, value string;
+attribute apt-association-type, value string;
+attribute apt-evidence-code, value string;
+attribute apt-biomarker-type, value string;
+attribute apt-diagnostic-confidence, value string;
+attribute apt-similarity-score, value double;
+
+
+# -----------------------------------------------------------------------------
+# COLLECTION TYPES
+# -----------------------------------------------------------------------------
+
+# APT-INVESTIGATION - An active precision therapeutics investigation (MONDO-rooted)
+entity apt-investigation sub collection,
+    owns apt-mondo-id,
+    owns apt-investigation-status;
+
+# APT-PATIENT-COHORT - Optional: a set of patients sharing phenotype/genotype
+entity apt-patient-cohort sub collection;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - Things (sub domain-thing)
+# -----------------------------------------------------------------------------
+
+# APT-DISEASE - A disease identified by MONDO ID
+entity apt-disease sub domain-thing,
+    owns apt-mondo-id,
+    owns apt-omim-id,
+    owns apt-orpha-id,
+    owns apt-gard-id,
+    owns apt-doid-id,
+    owns apt-ncit-id,
+    owns apt-inheritance-pattern,
+    owns apt-prevalence,
+    owns apt-age-of-onset,
+    plays apt-disease-has-mechanism:disease,
+    plays apt-disease-has-phenotype:disease,
+    plays apt-gene-causes-disease:disease,
+    plays apt-gene-associated-with:disease,
+    plays apt-disease-subclass-of:child-disease,
+    plays apt-disease-subclass-of:parent-disease,
+    plays apt-drug-indicated-for:indication,
+    plays apt-trial-studies:disease,
+    plays apt-biomarker-for:disease,
+    plays apt-model-recapitulates:disease;
+
+# APT-GENE - A gene implicated in the disease
+entity apt-gene sub domain-thing,
+    owns apt-gene-symbol,
+    owns apt-hgnc-id,
+    owns apt-ensembl-id,
+    owns apt-entrez-id,
+    plays apt-gene-causes-disease:gene,
+    plays apt-gene-associated-with:gene,
+    plays apt-mechanism-involves-gene:gene,
+    plays apt-gene-encodes:gene,
+    plays apt-variant-in-gene:gene,
+    plays apt-pathway-membership:gene,
+    plays apt-drug-targets:target-gene;
+
+# APT-PROTEIN - Protein product of a gene
+entity apt-protein sub domain-thing,
+    owns apt-uniprot-id,
+    owns apt-protein-domain,
+    plays apt-mechanism-involves-protein:protein,
+    plays apt-gene-encodes:protein,
+    plays apt-drug-targets:target-protein;
+
+# APT-MECHANISM - First-class mechanism of harm entity
+entity apt-mechanism sub domain-thing,
+    owns apt-mechanism-type,
+    owns apt-mechanism-level,
+    owns apt-therapeutic-addressability,
+    owns apt-mechanism-evidence-strength,
+    owns apt-functional-impact,
+    plays apt-disease-has-mechanism:mechanism,
+    plays apt-mechanism-involves-gene:mechanism,
+    plays apt-mechanism-involves-protein:mechanism,
+    plays apt-mechanism-affects-pathway:mechanism,
+    plays apt-mechanism-causes-phenotype:mechanism,
+    plays apt-strategy-targets-mechanism:mechanism;
+
+# APT-PATHWAY - Biological pathway implicated in disease mechanism
+entity apt-pathway sub domain-thing,
+    owns apt-reactome-id,
+    owns apt-go-term,
+    plays apt-mechanism-affects-pathway:pathway,
+    plays apt-pathway-membership:pathway;
+
+# APT-PHENOTYPE - A clinical phenotype feature (canonical HPO concept)
+entity apt-phenotype sub domain-thing,
+    owns apt-hpo-id,
+    owns apt-hpo-label,
+    plays apt-disease-has-phenotype:phenotype,
+    plays apt-mechanism-causes-phenotype:phenotype;
+
+# APT-VARIANT - A genomic variant (optional, for cohort tracking)
+entity apt-variant sub domain-thing,
+    owns apt-chromosome,
+    owns apt-position-start,
+    owns apt-position-end,
+    owns apt-ref-allele,
+    owns apt-alt-allele,
+    owns apt-genome-build,
+    owns apt-hgvs-c,
+    owns apt-hgvs-p,
+    owns apt-hgvs-g,
+    owns apt-acmg-class,
+    owns apt-zygosity,
+    owns apt-gnomad-af,
+    owns apt-clinvar-id,
+    plays apt-variant-in-gene:variant;
+
+# APT-DRUG - A therapeutic compound
+entity apt-drug sub domain-thing,
+    owns apt-drugbank-id,
+    owns apt-chembl-id,
+    owns apt-drug-class,
+    owns apt-mechanism-of-action,
+    owns apt-development-stage,
+    owns apt-therapeutic-modality,
+    plays apt-drug-targets:drug,
+    plays apt-drug-indicated-for:drug,
+    plays apt-strategy-implements:drug;
+
+# APT-THERAPEUTIC-STRATEGY - First-class rational therapeutic approach
+entity apt-therapeutic-strategy sub domain-thing,
+    owns apt-therapeutic-approach,
+    owns apt-therapeutic-modality,
+    owns apt-mechanism-evidence-strength,
+    plays apt-strategy-targets-mechanism:strategy,
+    plays apt-strategy-implements:strategy;
+
+# APT-CLINICAL-TRIAL - A clinical trial studying the disease
+entity apt-clinical-trial sub domain-thing,
+    owns apt-nct-id,
+    owns apt-trial-phase,
+    owns apt-trial-status,
+    plays apt-trial-studies:trial;
+
+# APT-DISEASE-MODEL - An experimental model system
+entity apt-disease-model sub domain-thing,
+    owns apt-model-type,
+    owns apt-model-species,
+    owns apt-phenotype-recapitulated,
+    plays apt-model-recapitulates:model,
+    plays apt-model-recapitulates:mechanism-model;
+
+# APT-BIOMARKER - A measurable indicator of disease state
+entity apt-biomarker sub domain-thing,
+    owns apt-biomarker-type,
+    plays apt-biomarker-for:biomarker;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - Artifacts (sub artifact)
+# -----------------------------------------------------------------------------
+
+entity apt-mondo-record sub artifact,
+    owns apt-mondo-id;
+
+entity apt-monarch-assoc-record sub artifact;
+
+entity apt-omim-record sub artifact,
+    owns apt-omim-id;
+
+entity apt-clinvar-record sub artifact,
+    owns apt-clinvar-id;
+
+entity apt-gnomad-record sub artifact;
+
+entity apt-clintrials-record sub artifact,
+    owns apt-nct-id;
+
+entity apt-chembl-record sub artifact,
+    owns apt-chembl-id;
+
+entity apt-sequencing-report sub artifact;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - Fragments (sub fragment)
+# -----------------------------------------------------------------------------
+
+entity apt-mechanism-claim sub fragment,
+    owns apt-mechanism-type,
+    owns apt-functional-impact,
+    owns confidence;
+
+entity apt-phenotype-entry sub fragment,
+    owns apt-hpo-id,
+    owns apt-hpo-label,
+    owns apt-frequency-qualifier,
+    owns apt-evidence-code;
+
+entity apt-drug-interaction sub fragment,
+    owns apt-mechanism-of-action;
+
+entity apt-variant-call sub fragment,
+    owns apt-hgvs-c,
+    owns apt-acmg-class;
+
+entity apt-conservation-data sub fragment;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - Notes (sub note)
+# -----------------------------------------------------------------------------
+
+entity apt-disease-overview-note sub note;
+
+entity apt-mechanism-analysis-note sub note,
+    owns apt-mechanism-type;
+
+entity apt-therapeutic-strategy-note sub note,
+    owns apt-therapeutic-approach;
+
+entity apt-impact-assessment-note sub note;
+
+entity apt-literature-synthesis-note sub note;
+
+entity apt-research-gaps-note sub note;
+
+entity apt-phenotypic-spectrum-note sub note;
+
+
+# -----------------------------------------------------------------------------
+# RELATION TYPES - Disease-centric
+# -----------------------------------------------------------------------------
+
+# APT-DISEASE-HAS-MECHANISM - Central relation: disease -> mechanism
+relation apt-disease-has-mechanism,
+    owns confidence,
+    owns provenance,
+    relates disease,
+    relates mechanism;
+
+# APT-DISEASE-HAS-PHENOTYPE - Disease presents with HPO phenotype
+relation apt-disease-has-phenotype,
+    owns apt-frequency-qualifier,
+    owns apt-evidence-code,
+    owns provenance,
+    relates disease,
+    relates phenotype;
+
+# APT-GENE-CAUSES-DISEASE - Gene is causally implicated in disease
+relation apt-gene-causes-disease,
+    owns confidence,
+    owns provenance,
+    relates gene,
+    relates disease;
+
+# APT-GENE-ASSOCIATED-WITH - Gene is associated with disease (non-causal)
+relation apt-gene-associated-with,
+    owns apt-association-type,
+    owns confidence,
+    owns provenance,
+    relates gene,
+    relates disease;
+
+# APT-DISEASE-SUBCLASS-OF - MONDO subclass hierarchy
+relation apt-disease-subclass-of,
+    relates child-disease,
+    relates parent-disease;
+
+
+# -----------------------------------------------------------------------------
+# RELATION TYPES - Mechanism chain
+# -----------------------------------------------------------------------------
+
+# APT-MECHANISM-INVOLVES-GENE - Mechanism acts through this gene
+relation apt-mechanism-involves-gene,
+    owns confidence,
+    relates mechanism,
+    relates gene;
+
+# APT-MECHANISM-INVOLVES-PROTEIN - Mechanism acts through this protein
+relation apt-mechanism-involves-protein,
+    owns confidence,
+    relates mechanism,
+    relates protein;
+
+# APT-MECHANISM-AFFECTS-PATHWAY - Mechanism dysregulates this pathway
+relation apt-mechanism-affects-pathway,
+    owns confidence,
+    relates mechanism,
+    relates pathway;
+
+# APT-MECHANISM-CAUSES-PHENOTYPE - Mechanism is causal for phenotype
+relation apt-mechanism-causes-phenotype,
+    owns confidence,
+    relates mechanism,
+    relates phenotype;
+
+# APT-GENE-ENCODES - Gene encodes this protein
+relation apt-gene-encodes,
+    relates gene,
+    relates protein;
+
+# APT-VARIANT-IN-GENE - Genomic variant is in this gene
+relation apt-variant-in-gene,
+    relates variant,
+    relates gene;
+
+# APT-PATHWAY-MEMBERSHIP - Gene/protein is a member of pathway
+relation apt-pathway-membership,
+    relates gene,
+    relates pathway;
+
+
+# -----------------------------------------------------------------------------
+# RELATION TYPES - Therapeutic chain
+# -----------------------------------------------------------------------------
+
+# APT-DRUG-TARGETS - Drug acts on gene/protein target
+relation apt-drug-targets,
+    owns apt-mechanism-of-action,
+    owns confidence,
+    owns provenance,
+    relates drug,
+    relates target-gene,
+    relates target-protein;
+
+# APT-DRUG-INDICATED-FOR - Drug has indication for this disease
+relation apt-drug-indicated-for,
+    owns apt-development-stage,
+    owns confidence,
+    owns provenance,
+    relates drug,
+    relates indication;
+
+# APT-STRATEGY-TARGETS-MECHANISM - Therapeutic strategy addresses mechanism
+relation apt-strategy-targets-mechanism,
+    owns confidence,
+    relates strategy,
+    relates mechanism;
+
+# APT-STRATEGY-IMPLEMENTS - Strategy is implemented by this drug
+relation apt-strategy-implements,
+    owns confidence,
+    relates strategy,
+    relates drug;
+
+# APT-TRIAL-STUDIES - Clinical trial studies disease
+relation apt-trial-studies,
+    relates trial,
+    relates disease;
+
+# APT-MODEL-RECAPITULATES - Disease model recapitulates disease or mechanism
+relation apt-model-recapitulates,
+    owns confidence,
+    owns provenance,
+    relates model,
+    relates disease,
+    relates mechanism-model;
+
+# APT-BIOMARKER-FOR - Biomarker is informative for disease
+relation apt-biomarker-for,
+    owns apt-biomarker-type,
+    relates biomarker,
+    relates disease;
+
+
+# =============================================================================
+# END APT NAMESPACE
+# =============================================================================

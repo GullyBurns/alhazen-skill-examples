@@ -1,0 +1,183 @@
+name: alg-precision-therapeutics
+description: "Mechanism-centered rare disease investigation using the Algorithm for Precision Medicine. Starting from a known MONDO ID, builds a mechanism-of-harm knowledge graph and identifies therapeutic strategies."
+license: Apache-2.0
+compatibility: "Requires uv, docker, TypeDB 3.x running with apt schema loaded"
+
+# Core files
+script: alg_precision_therapeutics.py
+schema: schema.tql
+
+# Dependencies
+requires:
+  bins: [uv, docker]
+  env: [TYPEDB_HOST, TYPEDB_PORT, TYPEDB_DATABASE]
+  optional_env: [ALHAZEN_CACHE_DIR]
+
+# TypeDB namespaces
+namespaces:
+  - schema.tql
+
+# Methodology
+methodology:
+  name: "Algorithm for Precision Medicine Phase 2 - Therapeutic"
+  starting_point: "Known MONDO disease ID"
+  central_innovation: "apt-mechanism as first-class entity linking gene -> pathway -> phenotype -> drug"
+  distinction_from_rare_disease: "rare-disease has mechanism as relation attribute; APT promotes mechanism to first-class entity with full therapeutic chain"
+  mechanism_model: "GoF | LoF-partial | LoF-total | dominant-negative | haploinsufficiency | toxic-aggregation | pathway-dysregulation"
+
+# Design pattern
+pattern: curation
+phases:
+  - foraging: "Search MONDO + Monarch (search-disease, init-investigation)"
+  - ingestion: "Pull associations: phenotypes, genes, hierarchy, clinical trials, drugs"
+  - sensemaking: "Claude analyzes artifacts, builds mechanism claims"
+  - analysis: "Mechanism chains, therapeutic map, research gaps"
+  - reporting: "Disease profile, phenome, therapeutic landscape"
+
+# Core operations
+operations:
+  # Discovery
+  - search-disease
+  - init-investigation
+  - list-investigations
+
+  # Ingestion
+  - ingest-disease
+  - ingest-phenotypes
+  - ingest-genes
+  - ingest-hierarchy
+  - ingest-clintrials
+  - ingest-drugs
+
+  # Manual entity management
+  - add-mechanism
+  - add-gene
+  - add-drug
+  - add-strategy
+  - add-phenotype
+  - link-mechanism-gene
+  - link-mechanism-phenotype
+  - link-drug-mechanism
+  - link-drug-target
+
+  # Artifact inspection
+  - list-artifacts
+  - show-artifact
+
+  # Analysis views
+  - show-disease
+  - show-mechanisms
+  - show-therapeutic-map
+  - show-phenome
+  - show-genes
+  - show-trials
+  - build-corpus
+
+  # Standard
+  - add-note
+  - tag
+  - search-tag
+
+# Entity types
+entities:
+  collections:
+    - apt-investigation
+    - apt-patient-cohort
+  things:
+    - apt-disease
+    - apt-gene
+    - apt-protein
+    - apt-mechanism
+    - apt-pathway
+    - apt-phenotype
+    - apt-variant
+    - apt-drug
+    - apt-therapeutic-strategy
+    - apt-clinical-trial
+    - apt-disease-model
+    - apt-biomarker
+  artifacts:
+    - apt-mondo-record
+    - apt-monarch-assoc-record
+    - apt-omim-record
+    - apt-clinvar-record
+    - apt-gnomad-record
+    - apt-clintrials-record
+    - apt-chembl-record
+    - apt-sequencing-report
+  fragments:
+    - apt-mechanism-claim
+    - apt-phenotype-entry
+    - apt-drug-interaction
+    - apt-variant-call
+    - apt-conservation-data
+  notes:
+    - apt-disease-overview-note
+    - apt-mechanism-analysis-note
+    - apt-therapeutic-strategy-note
+    - apt-impact-assessment-note
+    - apt-literature-synthesis-note
+    - apt-research-gaps-note
+    - apt-phenotypic-spectrum-note
+
+# Relation types
+relations:
+  - apt-disease-has-mechanism
+  - apt-disease-has-phenotype
+  - apt-gene-causes-disease
+  - apt-gene-associated-with
+  - apt-disease-subclass-of
+  - apt-mechanism-involves-gene
+  - apt-mechanism-involves-protein
+  - apt-mechanism-affects-pathway
+  - apt-mechanism-causes-phenotype
+  - apt-gene-encodes
+  - apt-variant-in-gene
+  - apt-pathway-membership
+  - apt-drug-targets
+  - apt-drug-indicated-for
+  - apt-strategy-targets-mechanism
+  - apt-strategy-implements
+  - apt-trial-studies
+  - apt-model-recapitulates
+  - apt-biomarker-for
+
+# Mechanism types (APM model)
+mechanism_types:
+  - GoF                    # Gain of function
+  - LoF-partial            # Partial loss of function
+  - LoF-total              # Complete loss of function
+  - dominant-negative      # Dominant negative effect
+  - haploinsufficiency     # One copy insufficient
+  - toxic-aggregation      # Toxic protein accumulation
+  - pathway-dysregulation  # Indirect pathway effect
+
+# HPO frequency qualifiers
+frequency_qualifiers:
+  - obligate      # 100%
+  - very-frequent # 80-99%
+  - frequent      # 30-79%
+  - occasional    # 5-29%
+  - rare          # 1-4%
+  - very-rare     # <1%
+
+# External databases
+databases:
+  monarch: "https://api-v3.monarchinitiative.org/v3/api"
+  clinicaltrials: "https://clinicaltrials.gov/api/v2/"
+  chembl: "https://www.ebi.ac.uk/chembl/api/data/"
+  mondo: "https://www.ebi.ac.uk/ols4/ontologies/mondo"
+  hpo: "https://hpo.jax.org/"
+  omim: "https://omim.org/"
+  orphanet: "https://www.orpha.net/"
+
+# Replaces these deprecated skills
+replaces:
+  - apm
+  - rare-disease
+
+# Integration with other skills
+integrates_with:
+  - typedb-notebook
+  - epmc-search
+  - techrecon
