@@ -230,7 +230,77 @@ uv run python $SCRIPT build-corpus          --mondo-id MONDO:0800044  # Literatu
 
 ## Artifacts, Fragments, and Notes
 
-The APT schema follows the Alhazen content hierarchy for captured knowledge:
+The APT schema follows the Alhazen content hierarchy for captured knowledge.
+Each domain entity is paired with **artifacts** (raw API responses ingested automatically),
+**fragments** (structured claims extracted from those artifacts), and **notes** (Claude's
+analysis and synthesis). The diagram below shows how each content type maps to the domain
+entities it describes.
+
+```mermaid
+flowchart LR
+    subgraph ARTS["Artifacts  (raw API captures)"]
+        A1["apt-mondo-record"]
+        A2["apt-monarch-assoc-record"]
+        A3["apt-omim-record"]
+        A4["apt-clinvar-record"]
+        A5["apt-gnomad-record"]
+        A6["apt-clintrials-record"]
+        A7["apt-chembl-record"]
+        A8["apt-sequencing-report"]
+    end
+
+    subgraph FRAGS["Fragments  (extracted claims)"]
+        F1["apt-mechanism-claim\ntype · confidence"]
+        F2["apt-phenotype-entry\nHPO · frequency · evidence"]
+        F3["apt-drug-interaction\nmechanism-of-action"]
+        F4["apt-variant-call\nHGVS · ACMG class"]
+        F5["apt-conservation-data"]
+    end
+
+    subgraph NOTES["Notes  (AI analysis)"]
+        N1["apt-disease-overview-note"]
+        N2["apt-mechanism-analysis-note"]
+        N3["apt-therapeutic-strategy-note"]
+        N4["apt-phenotypic-spectrum-note"]
+        N5["apt-literature-synthesis-note"]
+        N6["apt-research-gaps-note"]
+        N7["apt-impact-assessment-note"]
+    end
+
+    subgraph DOM["Domain Entities"]
+        DIS["apt-disease"]
+        MECH["apt-mechanism"]
+        STRAT["apt-therapeutic-strategy"]
+        GENE["apt-gene"]
+        DRUG["apt-drug"]
+        TRIAL["apt-clinical-trial"]
+        VAR["apt-variant"]
+        PHEN["apt-phenotype"]
+    end
+
+    A1 --> DIS
+    A2 --> DIS
+    A3 --> DIS
+    A4 --> VAR
+    A5 --> VAR
+    A6 --> TRIAL
+    A7 --> DRUG
+    A8 --> VAR
+
+    F1 --> MECH
+    F2 --> PHEN
+    F3 --> DRUG
+    F4 --> VAR
+    F5 --> GENE
+
+    N1 --> DIS
+    N2 --> MECH
+    N3 --> STRAT
+    N4 --> DIS
+    N5 --> DIS
+    N6 --> DIS
+    N7 --> DIS
+```
 
 **Artifacts** (raw API captures):
 
