@@ -1,5 +1,5 @@
 # =============================================================================
-# TECH RECON NAMESPACE - TypeDB 2.x Schema Extension
+# TECH RECON NAMESPACE - TypeDB 3.x Schema Extension
 # =============================================================================
 # Domain-specific subtypes for systematic investigation of external software
 # systems, libraries, frameworks, and computational tools.
@@ -21,40 +21,40 @@ define
 # -----------------------------------------------------------------------------
 
 # URL attributes
-techrecon-repo-url sub attribute, value string;
-techrecon-doc-url sub attribute, value string;
+attribute techrecon-repo-url, value string;
+attribute techrecon-doc-url, value string;
 
 # System metadata
-techrecon-model-id sub attribute, value string;         # HuggingFace model ID
-techrecon-package-name sub attribute, value string;     # pip/npm/cargo package name
-techrecon-language sub attribute, value string;          # primary language: Python, Rust, etc.
-techrecon-version sub attribute, value string;           # version string
-techrecon-stars sub attribute, value long;               # GitHub stars
-techrecon-last-commit sub attribute, value datetime;     # last commit timestamp
-techrecon-license-type sub attribute, value string;      # MIT, Apache-2.0, GPL, etc.
-techrecon-maturity sub attribute, value string;          # experimental/alpha/beta/stable/mature/deprecated
+attribute techrecon-model-id, value string;         # HuggingFace model ID
+attribute techrecon-package-name, value string;     # pip/npm/cargo package name
+attribute techrecon-language, value string;          # primary language: Python, Rust, etc.
+attribute techrecon-version, value string;           # version string
+attribute techrecon-stars, value integer;            # GitHub stars
+attribute techrecon-last-commit, value datetime;     # last commit timestamp
+attribute techrecon-license-type, value string;      # MIT, Apache-2.0, GPL, etc.
+attribute techrecon-maturity, value string;          # experimental/alpha/beta/stable/mature/deprecated
 
 # Investigation tracking
-techrecon-investigation-status sub attribute, value string;  # active/paused/completed/archived
-techrecon-investigation-goal sub attribute, value string;    # what we want to learn
+attribute techrecon-investigation-status, value string;  # active/paused/completed/archived
+attribute techrecon-investigation-goal, value string;    # what we want to learn
 
 # Component attributes
-techrecon-component-type sub attribute, value string;    # module/service/library/plugin/API/CLI/data-store
-techrecon-component-role sub attribute, value string;    # what the component does in the system
+attribute techrecon-component-type, value string;    # module/service/library/plugin/API/CLI/data-store
+attribute techrecon-component-role, value string;    # what the component does in the system
 
 # Concept attributes
-techrecon-concept-category sub attribute, value string;  # algorithm/pattern/protocol/data-structure/architecture
+attribute techrecon-concept-category, value string;  # algorithm/pattern/protocol/data-structure/architecture
 
 # Data model attributes
-techrecon-model-format sub attribute, value string;      # JSON-Schema/RDF-OWL/TypeDB/SQL/Protobuf/GraphQL/custom
+attribute techrecon-model-format, value string;      # JSON-Schema/RDF-OWL/TypeDB/SQL/Protobuf/GraphQL/custom
 
 # Source file attributes
-techrecon-file-path sub attribute, value string;         # path within repo
-techrecon-file-language sub attribute, value string;     # language of source file
+attribute techrecon-file-path, value string;         # path within repo
+attribute techrecon-file-language, value string;     # language of source file
 
 # Assessment attributes
-techrecon-integration-priority sub attribute, value string;  # high/medium/low/none
-techrecon-complexity-rating sub attribute, value string;     # trivial/moderate/complex/prohibitive
+attribute techrecon-integration-priority, value string;  # high/medium/low/none
+attribute techrecon-complexity-rating, value string;     # trivial/moderate/complex/prohibitive
 
 
 # -----------------------------------------------------------------------------
@@ -187,29 +187,29 @@ techrecon-assessment-note sub note,
 # -----------------------------------------------------------------------------
 
 # TECHRECON-HAS-COMPONENT - System contains component
-techrecon-has-component sub relation,
+relation techrecon-has-component,
     relates system,
     relates component;
 
 # TECHRECON-USES-CONCEPT - Component uses/implements a concept
-techrecon-uses-concept sub relation,
+relation techrecon-uses-concept,
     owns confidence,
     relates component,
     relates concept;
 
 # TECHRECON-HAS-DATA-MODEL - System uses a data model
-techrecon-has-data-model sub relation,
+relation techrecon-has-data-model,
     relates system,
     relates data-model;
 
 # TECHRECON-SYSTEM-DEPENDENCY - System depends on another system
-techrecon-system-dependency sub relation,
+relation techrecon-system-dependency,
     owns techrecon-version,
     relates dependent,
     relates dependency;
 
 # TECHRECON-COMPONENT-DEPENDENCY - Component depends on another component
-techrecon-component-dependency sub relation,
+relation techrecon-component-dependency,
     relates dependent-component,
     relates dependency-component;
 

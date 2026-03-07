@@ -1,5 +1,5 @@
 # =============================================================================
-# JOB HUNTING NOTEBOOK NAMESPACE - TypeDB 2.x Schema Extension
+# JOB HUNTING NOTEBOOK NAMESPACE - TypeDB 3.x Schema Extension
 # =============================================================================
 # Domain-specific subtypes for job hunting and career management.
 # TypeDB as Claude's "world model" for reasoning about jobs, skills, and fit.
@@ -13,63 +13,63 @@ define
 # -----------------------------------------------------------------------------
 
 # URL attributes
-job-url sub attribute, value string;
-company-url sub attribute, value string;
-resource-url sub attribute, value string;
-linkedin-url sub attribute, value string;
+attribute job-url, value string;
+attribute company-url, value string;
+attribute resource-url, value string;
+attribute linkedin-url, value string;
 
 # Position attributes
-short-name sub attribute, value string;     # compact identifier for UI (e.g., "anthropic", "langchain")
-salary-range sub attribute, value string;
-location sub attribute, value string;
-remote-policy sub attribute, value string;  # remote/hybrid/onsite
-team-size sub attribute, value string;
+attribute short-name, value string;     # compact identifier for UI (e.g., "anthropic", "langchain")
+attribute salary-range, value string;
+attribute location, value string;
+attribute remote-policy, value string;  # remote/hybrid/onsite
+attribute team-size, value string;
 
 # Application tracking
-application-status sub attribute, value string;  # researching/applied/interviewing/offer/rejected
-applied-date sub attribute, value datetime;
-interview-date sub attribute, value datetime;
-deadline sub attribute, value datetime;
-response-date sub attribute, value datetime;
+attribute application-status, value string;  # researching/applied/interviewing/offer/rejected
+attribute applied-date, value datetime;
+attribute interview-date, value datetime;
+attribute deadline, value datetime;
+attribute response-date, value datetime;
 
 # Skill/requirement attributes
-skill-name sub attribute, value string;
-skill-level sub attribute, value string;  # required/preferred/nice-to-have
-your-level sub attribute, value string;   # strong/some/none
+attribute skill-name, value string;
+attribute skill-level, value string;  # required/preferred/nice-to-have
+attribute your-level, value string;   # strong/some/none
 
 # Learning resource attributes
-resource-type sub attribute, value string;  # course/book/tutorial/project/video
-estimated-hours sub attribute, value long;
-completion-status sub attribute, value string;  # not-started/in-progress/completed
+attribute resource-type, value string;  # course/book/tutorial/project/video
+attribute estimated-hours, value integer;
+attribute completion-status, value string;  # not-started/in-progress/completed
 
 # Contact attributes
-contact-role sub attribute, value string;  # recruiter/hiring-manager/employee/referral
-contact-email sub attribute, value string;
+attribute contact-role, value string;  # recruiter/hiring-manager/employee/referral
+attribute contact-email, value string;
 
 # Fit analysis
-fit-score sub attribute, value double;  # 0.0-1.0
-fit-summary sub attribute, value string;
+attribute fit-score, value double;  # 0.0-1.0
+attribute fit-summary, value string;
 
 # Interaction tracking
-interaction-type sub attribute, value string;  # email/call/coffee/interview/message
-interaction-date sub attribute, value datetime;
+attribute interaction-type, value string;  # email/call/coffee/interview/message
+attribute interaction-date, value datetime;
 
 # Priority
-priority-level sub attribute, value string;  # high/medium/low
+attribute priority-level, value string;  # high/medium/low
 
 # Your skill profile attributes
-last-updated sub attribute, value datetime;
+attribute last-updated, value datetime;
 
 # Forager attributes (automated job discovery)
-board-token sub attribute, value string;     # company slug for API
-board-platform sub attribute, value string;  # "greenhouse", "lever", "linkedin", "remotive", "adzuna"
-external-job-id sub attribute, value string; # API's job ID for dedup
-discovered-at sub attribute, value datetime;
-relevance-score sub attribute, value double; # 0.0-1.0 keyword match
-candidate-status sub attribute, value string; # new/reviewed/promoted/dismissed
-search-query sub attribute, value string;      # keywords for aggregator searches
-search-location sub attribute, value string;   # location filter for aggregator searches
-triage-reason sub attribute, value string;     # LLM explanation for relevance score
+attribute board-token, value string;     # company slug for API
+attribute board-platform, value string;  # "greenhouse", "lever", "linkedin", "remotive", "adzuna"
+attribute external-job-id, value string; # API's job ID for dedup
+attribute discovered-at, value datetime;
+attribute relevance-score, value double; # 0.0-1.0 keyword match
+attribute candidate-status, value string; # new/reviewed/promoted/dismissed
+attribute search-query, value string;      # keywords for aggregator searches
+attribute search-location, value string;   # location filter for aggregator searches
+attribute triage-reason, value string;     # LLM explanation for relevance score
 
 
 # -----------------------------------------------------------------------------
@@ -227,28 +227,28 @@ jobhunt-interaction-note sub note,
 # -----------------------------------------------------------------------------
 
 # POSITION-AT-COMPANY - Links position to employer
-position-at-company sub relation,
+relation position-at-company,
     relates position,
     relates employer;
 
 # REQUIREMENT-FOR - Links requirements to positions
-requirement-for sub relation,
+relation requirement-for,
     relates requirement,
     relates position;
 
 # ADDRESSES-REQUIREMENT - Learning resources that address skill gaps
-addresses-requirement sub relation,
+relation addresses-requirement,
     owns confidence,
     relates resource,
     relates requirement;
 
 # SOURCE-PROVIDES - Links forager candidates to their search source
-source-provides sub relation,
+relation source-provides,
     relates source,
     relates candidate;
 
 # WORKS-AT - Contacts working at companies
-works-at sub relation,
+relation works-at,
     owns valid-from,
     owns valid-until,
     relates employee,
@@ -259,7 +259,7 @@ works-at sub relation,
 # CROSS-NAMESPACE EXTENSIONS - Allow core types to participate in jobhunt relations
 # -----------------------------------------------------------------------------
 
-# Allow paper collections to address skill requirements (bridges scilit ↔ jobhunt)
+# Allow paper collections to address skill requirements (bridges scilit <-> jobhunt)
 collection plays addresses-requirement:resource;
 
 
