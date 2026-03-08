@@ -32,6 +32,13 @@ attribute interview-date, value datetime;
 attribute deadline, value datetime;
 attribute response-date, value datetime;
 
+# Opportunity model attributes
+attribute opportunity-status, value string;   # exploring/active/paused/closed
+attribute engagement-type, value string;      # hourly | project | retainer | advisory
+attribute rate-info, value string;            # free text: "$X/hr", "TBD", "equity only"
+attribute venture-stage, value string;        # exploring | proposal-sent | negotiating | active | paused | closed
+attribute equity-type, value string;          # none | advisor | cofounder | investor
+
 # Skill/requirement attributes
 attribute skill-name, value string;
 attribute skill-level, value string;
@@ -75,6 +82,11 @@ attribute triage-reason, value string;
 # -----------------------------------------------------------------------------
 # RELATION TYPES - defined before entities so role names resolve in plays clauses
 # -----------------------------------------------------------------------------
+
+# OPPORTUNITY-AT-ORGANIZATION - Links any opportunity to an organization
+relation opportunity-at-organization,
+    relates opportunity,
+    relates organization;
 
 # POSITION-AT-COMPANY - Links position to employer
 relation position-at-company,
@@ -154,20 +166,42 @@ entity jobhunt-company sub domain-thing,
     owns linkedin-url,
     owns location,
     plays position-at-company:employer,
-    plays works-at:employer;
+    plays works-at:employer,
+    plays opportunity-at-organization:organization;
 
-# JOBHUNT-POSITION - A specific role/job posting
-entity jobhunt-position sub domain-thing,
+# JOBHUNT-OPPORTUNITY - Base supertype for all trackable career opportunities
+entity jobhunt-opportunity sub domain-thing,
+    owns opportunity-status,
+    owns priority-level,
+    owns deadline,
+    plays opportunity-at-organization:opportunity;
+
+# JOBHUNT-POSITION - A specific role/job posting (formal employment application)
+entity jobhunt-position sub jobhunt-opportunity,
     owns job-url,
     owns short-name,
     owns salary-range,
     owns location,
     owns remote-policy,
     owns team-size,
-    owns deadline,
-    owns priority-level,
     plays position-at-company:position,
     plays requirement-for:position;
+
+# JOBHUNT-ENGAGEMENT - Paid consulting/service work for a client
+entity jobhunt-engagement sub jobhunt-opportunity,
+    owns short-name,
+    owns engagement-type,
+    owns rate-info;
+
+# JOBHUNT-VENTURE - Startup/advisory/equity opportunity
+entity jobhunt-venture sub jobhunt-opportunity,
+    owns short-name,
+    owns venture-stage,
+    owns equity-type;
+
+# JOBHUNT-LEAD - Early-stage networking contact with undefined role
+entity jobhunt-lead sub jobhunt-opportunity,
+    owns short-name;
 
 # JOBHUNT-LEARNING-RESOURCE - Course, tutorial, book, etc.
 entity jobhunt-learning-resource sub domain-thing,
@@ -193,6 +227,7 @@ entity jobhunt-job-description sub artifact;
 entity jobhunt-resume sub artifact;
 entity jobhunt-cover-letter sub artifact;
 entity jobhunt-company-page sub artifact;
+entity jobhunt-proposal sub artifact;
 
 
 # -----------------------------------------------------------------------------

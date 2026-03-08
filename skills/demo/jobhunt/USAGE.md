@@ -329,6 +329,105 @@ uv run python .claude/skills/jobhunt/jobhunt.py learning-plan
 
 ---
 
+## Opportunity Model
+
+The jobhunt skill tracks multiple types of career opportunities via the `jobhunt-opportunity` hierarchy:
+
+```
+jobhunt-opportunity (base)
+├── jobhunt-position    — formal employment application (has application-status pipeline)
+├── jobhunt-engagement  — paid consulting/service work for a client
+├── jobhunt-venture     — startup/advisory/equity opportunity
+└── jobhunt-lead        — early-stage networking contact, role undefined
+```
+
+All opportunity types share: `opportunity-status`, `priority-level`, `deadline`, and can be linked to a `jobhunt-company` via `opportunity-at-organization`.
+
+All opportunity types work with `add-note --about <ID>` — notes attach to any `identifiable-entity`.
+
+### Add an Engagement
+
+```bash
+uv run python .claude/skills/jobhunt/jobhunt.py add-engagement \
+    --name "Acme Corp Data Consulting" \
+    --company-id "company-abc123" \
+    --type project \
+    --rate "$200/hr" \
+    --status active \
+    --priority high
+```
+
+**Engagement types:** `hourly` | `project` | `retainer` | `advisory`
+
+### Add a Venture
+
+```bash
+uv run python .claude/skills/jobhunt/jobhunt.py add-venture \
+    --name "Augura Health Advisory" \
+    --stage proposal-sent \
+    --equity-type advisor \
+    --priority high
+```
+
+**Venture stages:** `exploring` | `proposal-sent` | `negotiating` | `active` | `paused` | `closed`
+**Equity types:** `none` | `advisor` | `cofounder` | `investor`
+
+### Add a Lead
+
+```bash
+uv run python .claude/skills/jobhunt/jobhunt.py add-lead \
+    --name "Jane Smith - BigCo" \
+    --status warm \
+    --priority medium \
+    --description "Met at ML Summit, interested in consulting"
+```
+
+**Lead statuses (convention):** `exploring` | `warm` | `stale`
+
+### Update Any Opportunity
+
+```bash
+uv run python .claude/skills/jobhunt/jobhunt.py update-opportunity \
+    --id "venture-abc123" \
+    --status active \
+    --stage negotiating \
+    --priority high
+```
+
+### List All Opportunities
+
+```bash
+# All types
+uv run python .claude/skills/jobhunt/jobhunt.py list-opportunities --type all
+
+# Filter by type
+uv run python .claude/skills/jobhunt/jobhunt.py list-opportunities --type venture
+uv run python .claude/skills/jobhunt/jobhunt.py list-opportunities --type engagement --status active
+
+# Positions still use list-pipeline (richer position-specific output)
+uv run python .claude/skills/jobhunt/jobhunt.py list-pipeline
+```
+
+### Show Any Opportunity
+
+```bash
+uv run python .claude/skills/jobhunt/jobhunt.py show-opportunity --id "venture-abc123"
+```
+
+### Modeling Guide
+
+| Situation | Entity type | Key attributes |
+|-----------|-------------|----------------|
+| Own consulting business | `jobhunt-company` | name, description |
+| Startup advisory role | `jobhunt-venture` | venture-stage, equity-type |
+| Consulting engagement | `jobhunt-engagement` | engagement-type, rate-info |
+| Networking contact (no role yet) | `jobhunt-lead` | opportunity-status, description |
+| Formal job application | `jobhunt-position` | job-url, application-status pipeline |
+
+**Phylo strategy pattern:** Use an existing `jobhunt-position` as the anchor for all interactions. Add `jobhunt-interaction-note` entries for each meeting. Only create a separate `jobhunt-lead` if a genuinely new thread emerges from those conversations.
+
+---
+
 ## Data Model
 
 ### Entity Types
@@ -336,19 +435,33 @@ uv run python .claude/skills/jobhunt/jobhunt.py learning-plan
 | Type | Description |
 |------|-------------|
 | `your-skill` | Your skills for gap analysis |
-| `jobhunt-company` | An employer organization |
-| `jobhunt-position` | A specific job posting |
+| `jobhunt-company` | An employer/client organization |
+| `jobhunt-opportunity` | Base type for all opportunities |
+| `jobhunt-position` | Formal job posting (sub opportunity) |
+| `jobhunt-engagement` | Consulting engagement (sub opportunity) |
+| `jobhunt-venture` | Startup/advisory venture (sub opportunity) |
+| `jobhunt-lead` | Networking lead (sub opportunity) |
 | `jobhunt-learning-resource` | Course, book, tutorial |
 | `jobhunt-contact` | Person at a company |
 | `jobhunt-search-source` | Company board for forager |
 | `jobhunt-candidate` | Discovered posting (forager) |
 
+### Artifact Types
+
+| Type | Description |
+|------|-------------|
+| `jobhunt-job-description` | Raw HTML/text from job posting URL |
+| `jobhunt-resume` | Resume document |
+| `jobhunt-cover-letter` | Cover letter |
+| `jobhunt-company-page` | Company website snapshot |
+| `jobhunt-proposal` | Proposal or pitch deck for engagement/venture |
+
 ### Note Types
 
 | Type | Purpose |
 |------|---------|
-| `jobhunt-application-note` | Status tracking |
-| `jobhunt-research-note` | Company research |
+| `jobhunt-application-note` | Status tracking (positions) |
+| `jobhunt-research-note` | Company/opportunity research |
 | `jobhunt-interview-note` | Interview prep/feedback |
 | `jobhunt-strategy-note` | Talking points, approach |
 | `jobhunt-skill-gap-note` | Learning needs |
@@ -368,13 +481,19 @@ uv run python .claude/skills/jobhunt/jobhunt.py learning-plan
 | `show-artifact` | Get artifact content | `--id` |
 | `add-company` | Add company | `--name` |
 | `add-position` | Add position manually | `--title` |
+| `add-engagement` | Add consulting engagement | `--name`, `--type`, `--rate` |
+| `add-venture` | Add startup/advisory venture | `--name`, `--stage`, `--equity-type` |
+| `add-lead` | Add networking lead | `--name`, `--status` |
+| `update-opportunity` | Update any opportunity status/stage/priority | `--id` |
+| `show-opportunity` | Show any opportunity details | `--id` |
+| `list-opportunities` | List by type/status | `--type`, `--status`, `--priority` |
 | `add-requirement` | Add skill requirement | `--position`, `--skill` |
-| `update-status` | Change application status | `--position`, `--status` |
+| `update-status` | Change position application status | `--position`, `--status` |
 | `add-note` | Create any note type | `--about`, `--type`, `--content` |
 | `add-resource` | Add learning resource | `--name`, `--type` |
 | `link-collection` | Link paper collection to skill gap | `--collection`, `--skill` |
 | `link-paper` | Link resource to paper | `--resource`, `--paper` |
-| `list-pipeline` | Show applications | `--status`, `--priority` |
+| `list-pipeline` | Show position pipeline | `--status`, `--priority` |
 | `show-position` | Position details | `--id` |
 | `show-company` | Company details | `--id` |
 | `show-gaps` | Skill gap analysis | |

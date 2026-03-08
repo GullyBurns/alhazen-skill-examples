@@ -850,6 +850,323 @@ def cmd_delete_position(args):
     print(json.dumps({"success": True, "deleted": args.id}))
 
 
+# =============================================================================
+# OPPORTUNITY MODEL COMMANDS
+# =============================================================================
+
+
+def _link_opportunity_to_company(driver, opportunity_id, company_id):
+    """Link an opportunity to a company via opportunity-at-organization."""
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+        rel_query = f'''match
+            $o isa jobhunt-opportunity, has id "{opportunity_id}";
+            $c isa jobhunt-company, has id "{company_id}";
+        insert (opportunity: $o, organization: $c) isa opportunity-at-organization;'''
+        tx.query(rel_query).resolve()
+        tx.commit()
+
+
+def cmd_add_engagement(args):
+    """Add a consulting/service engagement opportunity."""
+    engagement_id = args.id or generate_id("engagement")
+    timestamp = get_timestamp()
+
+    query = f'''insert $e isa jobhunt-engagement,
+        has id "{engagement_id}",
+        has name "{escape_string(args.name)}",
+        has created-at {timestamp}'''
+
+    if args.type:
+        query += f', has engagement-type "{args.type}"'
+    if args.rate:
+        query += f', has rate-info "{escape_string(args.rate)}"'
+    if args.status:
+        query += f', has opportunity-status "{args.status}"'
+    if args.priority:
+        query += f', has priority-level "{args.priority}"'
+    if args.deadline:
+        query += f', has deadline {parse_date(args.deadline)}'
+    if args.description:
+        query += f', has description "{escape_string(args.description)}"'
+
+    query += ";"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(query).resolve()
+            tx.commit()
+
+        if args.company_id:
+            _link_opportunity_to_company(driver, engagement_id, args.company_id)
+
+    print(json.dumps({"success": True, "engagement_id": engagement_id, "name": args.name}))
+
+
+def cmd_add_venture(args):
+    """Add a startup/advisory/equity venture opportunity."""
+    venture_id = args.id or generate_id("venture")
+    timestamp = get_timestamp()
+
+    query = f'''insert $v isa jobhunt-venture,
+        has id "{venture_id}",
+        has name "{escape_string(args.name)}",
+        has created-at {timestamp}'''
+
+    if args.stage:
+        query += f', has venture-stage "{args.stage}"'
+    if args.equity_type:
+        query += f', has equity-type "{args.equity_type}"'
+    if args.status:
+        query += f', has opportunity-status "{args.status}"'
+    if args.priority:
+        query += f', has priority-level "{args.priority}"'
+    if args.deadline:
+        query += f', has deadline {parse_date(args.deadline)}'
+    if args.description:
+        query += f', has description "{escape_string(args.description)}"'
+
+    query += ";"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(query).resolve()
+            tx.commit()
+
+        if args.company_id:
+            _link_opportunity_to_company(driver, venture_id, args.company_id)
+
+    print(json.dumps({"success": True, "venture_id": venture_id, "name": args.name}))
+
+
+def cmd_add_lead(args):
+    """Add an early-stage networking lead."""
+    lead_id = args.id or generate_id("lead")
+    timestamp = get_timestamp()
+
+    query = f'''insert $l isa jobhunt-lead,
+        has id "{lead_id}",
+        has name "{escape_string(args.name)}",
+        has created-at {timestamp}'''
+
+    if args.status:
+        query += f', has opportunity-status "{args.status}"'
+    if args.priority:
+        query += f', has priority-level "{args.priority}"'
+    if args.description:
+        query += f', has description "{escape_string(args.description)}"'
+
+    query += ";"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(query).resolve()
+            tx.commit()
+
+    print(json.dumps({"success": True, "lead_id": lead_id, "name": args.name}))
+
+
+def cmd_update_opportunity(args):
+    """Update status, stage, or priority of any opportunity."""
+    updates = []
+    if args.status:
+        updates.append(("opportunity-status", args.status))
+    if args.stage:
+        updates.append(("venture-stage", args.stage))
+    if args.priority:
+        updates.append(("priority-level", args.priority))
+
+    if not updates:
+        print(json.dumps({"success": False, "error": "No updates specified"}))
+        return
+
+    with get_driver() as driver:
+        for attr, value in updates:
+            # Check if attribute already exists
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                check = list(tx.query(f'''match
+                    $o isa jobhunt-opportunity, has id "{args.id}", has {attr} $v;
+                fetch {{ "v": $v.{attr} }};''').resolve())
+
+            if check:
+                # Delete old value then insert new
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $o isa jobhunt-opportunity, has id "{args.id}", has {attr} $v;
+                    delete has $v of $o;''').resolve()
+                    tx.commit()
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $o isa jobhunt-opportunity, has id "{args.id}";
+                insert $o has {attr} "{value}";''').resolve()
+                tx.commit()
+
+    print(json.dumps({"success": True, "id": args.id, "updates": dict(updates)}))
+
+
+def cmd_show_opportunity(args):
+    """Show details for any opportunity subtype."""
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            # Try each subtype in order
+            opp = None
+            opp_type = None
+            for otype in ["jobhunt-position", "jobhunt-engagement", "jobhunt-venture", "jobhunt-lead"]:
+                q = f'''match $o isa {otype}, has id "{args.id}";
+                fetch {{
+                    "id": $o.id,
+                    "name": $o.name,
+                    "description": $o.description,
+                    "opportunity-status": $o.opportunity-status,
+                    "priority-level": $o.priority-level,
+                    "deadline": $o.deadline
+                }};'''
+                results = list(tx.query(q).resolve())
+                if results:
+                    opp = results[0]
+                    opp_type = otype
+                    break
+
+            if not opp:
+                print(json.dumps({"success": False, "error": "Opportunity not found"}))
+                return
+
+            # Type-specific attributes
+            if opp_type == "jobhunt-position":
+                extra_q = f'''match $o isa jobhunt-position, has id "{args.id}";
+                fetch {{
+                    "job-url": $o.job-url,
+                    "short-name": $o.short-name,
+                    "salary-range": $o.salary-range,
+                    "location": $o.location,
+                    "remote-policy": $o.remote-policy
+                }};'''
+                extras = list(tx.query(extra_q).resolve())
+                if extras:
+                    opp.update(extras[0])
+
+            elif opp_type == "jobhunt-engagement":
+                extra_q = f'''match $o isa jobhunt-engagement, has id "{args.id}";
+                fetch {{
+                    "short-name": $o.short-name,
+                    "engagement-type": $o.engagement-type,
+                    "rate-info": $o.rate-info
+                }};'''
+                extras = list(tx.query(extra_q).resolve())
+                if extras:
+                    opp.update(extras[0])
+
+            elif opp_type == "jobhunt-venture":
+                extra_q = f'''match $o isa jobhunt-venture, has id "{args.id}";
+                fetch {{
+                    "short-name": $o.short-name,
+                    "venture-stage": $o.venture-stage,
+                    "equity-type": $o.equity-type
+                }};'''
+                extras = list(tx.query(extra_q).resolve())
+                if extras:
+                    opp.update(extras[0])
+
+            elif opp_type == "jobhunt-lead":
+                extra_q = f'''match $o isa jobhunt-lead, has id "{args.id}";
+                fetch {{ "short-name": $o.short-name }};'''
+                extras = list(tx.query(extra_q).resolve())
+                if extras:
+                    opp.update(extras[0])
+
+            # Get linked company via opportunity-at-organization
+            company_q = f'''match
+                $o isa jobhunt-opportunity, has id "{args.id}";
+                (opportunity: $o, organization: $c) isa opportunity-at-organization;
+            fetch {{ "id": $c.id, "name": $c.name }};'''
+            company_results = list(tx.query(company_q).resolve())
+
+            # Get notes
+            notes_q = f'''match
+                $o isa jobhunt-opportunity, has id "{args.id}";
+                (note: $n, subject: $o) isa aboutness;
+            fetch {{ "id": $n.id, "name": $n.name, "content": $n.content }};'''
+            notes_results = list(tx.query(notes_q).resolve())
+
+    print(json.dumps({
+        "success": True,
+        "type": opp_type,
+        "opportunity": opp,
+        "company": company_results[0] if company_results else None,
+        "notes": notes_results,
+    }, indent=2, default=str))
+
+
+def cmd_list_opportunities(args):
+    """List opportunities, optionally filtered by type and status."""
+    opp_type = args.type or "all"
+
+    type_map = {
+        "position": ["jobhunt-position"],
+        "engagement": ["jobhunt-engagement"],
+        "venture": ["jobhunt-venture"],
+        "lead": ["jobhunt-lead"],
+        "all": ["jobhunt-position", "jobhunt-engagement", "jobhunt-venture", "jobhunt-lead"],
+    }
+    types_to_query = type_map.get(opp_type, ["jobhunt-position"])
+
+    results = []
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            for otype in types_to_query:
+                match_clause = f"match $o isa {otype};"
+                if args.status:
+                    match_clause += f'\n$o has opportunity-status "{args.status}";'
+                if args.priority:
+                    match_clause += f'\n$o has priority-level "{args.priority}";'
+
+                q = match_clause + """
+                fetch {
+                    "id": $o.id,
+                    "name": $o.name,
+                    "short-name": $o.short-name,
+                    "opportunity-status": $o.opportunity-status,
+                    "priority-level": $o.priority-level
+                };"""
+                rows = list(tx.query(q).resolve())
+                for r in rows:
+                    r["_type"] = otype
+                results.extend(rows)
+
+            # Get company links for all
+            for r in results:
+                oid = r.get("id", "")
+                if not oid:
+                    continue
+                company_q = f'''match
+                    $o isa jobhunt-opportunity, has id "{oid}";
+                    (opportunity: $o, organization: $c) isa opportunity-at-organization;
+                fetch {{ "name": $c.name }};'''
+                try:
+                    company_results = list(tx.query(company_q).resolve())
+                    r["company"] = company_results[0].get("name", "") if company_results else ""
+                except Exception:
+                    r["company"] = ""
+
+    opportunities = []
+    for r in results:
+        opportunities.append({
+            "id": r.get("id", ""),
+            "type": r.get("_type", "").replace("jobhunt-", ""),
+            "name": r.get("name", ""),
+            "short_name": r.get("short-name", ""),
+            "status": r.get("opportunity-status", ""),
+            "priority": r.get("priority-level", ""),
+            "company": r.get("company", ""),
+        })
+
+    print(json.dumps({
+        "success": True,
+        "opportunities": opportunities,
+        "count": len(opportunities),
+    }, indent=2))
+
+
 def cmd_list_pipeline(args):
     """List positions in the pipeline."""
     with get_driver() as driver:
@@ -2203,10 +2520,60 @@ def main():
     p = subparsers.add_parser("show-artifact", help="Get artifact content for Claude to read")
     p.add_argument("--id", required=True, help="Artifact ID")
 
-    # list-pipeline
+    # delete-position
     p = subparsers.add_parser("delete-position", help="Delete a position and all its related data")
     p.add_argument("--id", required=True, help="Position ID")
 
+    # add-engagement
+    p = subparsers.add_parser("add-engagement", help="Add a consulting/service engagement")
+    p.add_argument("--name", required=True, help="Engagement name")
+    p.add_argument("--company-id", dest="company_id", help="Company ID to link")
+    p.add_argument("--type", choices=["hourly", "project", "retainer", "advisory"], help="Engagement type")
+    p.add_argument("--rate", help="Rate info (e.g. '$200/hr', 'TBD', 'equity only')")
+    p.add_argument("--status", help="Status (e.g. exploring, active, paused, closed)")
+    p.add_argument("--priority", choices=["high", "medium", "low"], help="Priority level")
+    p.add_argument("--deadline", help="Deadline (YYYY-MM-DD)")
+    p.add_argument("--description", help="Description")
+    p.add_argument("--id", help="Specific ID")
+
+    # add-venture
+    p = subparsers.add_parser("add-venture", help="Add a startup/advisory/equity venture")
+    p.add_argument("--name", required=True, help="Venture name")
+    p.add_argument("--company-id", dest="company_id", help="Company ID to link")
+    p.add_argument("--stage", choices=["exploring", "proposal-sent", "negotiating", "active", "paused", "closed"], help="Venture stage")
+    p.add_argument("--equity-type", dest="equity_type", choices=["none", "advisor", "cofounder", "investor"], help="Equity type")
+    p.add_argument("--status", help="Status (e.g. exploring, active, paused, closed)")
+    p.add_argument("--priority", choices=["high", "medium", "low"], help="Priority level")
+    p.add_argument("--deadline", help="Deadline (YYYY-MM-DD)")
+    p.add_argument("--description", help="Description")
+    p.add_argument("--id", help="Specific ID")
+
+    # add-lead
+    p = subparsers.add_parser("add-lead", help="Add an early-stage networking lead")
+    p.add_argument("--name", required=True, help="Lead name/description")
+    p.add_argument("--status", help="Status (e.g. exploring, warm, stale)")
+    p.add_argument("--priority", choices=["high", "medium", "low"], help="Priority level")
+    p.add_argument("--description", help="Description")
+    p.add_argument("--id", help="Specific ID")
+
+    # update-opportunity
+    p = subparsers.add_parser("update-opportunity", help="Update status/stage/priority of any opportunity")
+    p.add_argument("--id", required=True, help="Opportunity ID")
+    p.add_argument("--status", help="New opportunity status")
+    p.add_argument("--stage", help="New venture stage")
+    p.add_argument("--priority", choices=["high", "medium", "low"], help="New priority")
+
+    # show-opportunity
+    p = subparsers.add_parser("show-opportunity", help="Show details for any opportunity")
+    p.add_argument("--id", required=True, help="Opportunity ID")
+
+    # list-opportunities
+    p = subparsers.add_parser("list-opportunities", help="List opportunities by type/status")
+    p.add_argument("--type", choices=["position", "engagement", "venture", "lead", "all"], default="all", help="Opportunity type filter")
+    p.add_argument("--status", help="Filter by opportunity status")
+    p.add_argument("--priority", choices=["high", "medium", "low"], help="Filter by priority")
+
+    # list-pipeline
     p = subparsers.add_parser("list-pipeline", help="Show application pipeline")
     p.add_argument("--status", help="Filter by status")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Filter by priority")
@@ -2280,6 +2647,13 @@ def main():
         "add-requirement": cmd_add_requirement,
         # Delete
         "delete-position": cmd_delete_position,
+        # Opportunity model
+        "add-engagement": cmd_add_engagement,
+        "add-venture": cmd_add_venture,
+        "add-lead": cmd_add_lead,
+        "update-opportunity": cmd_update_opportunity,
+        "show-opportunity": cmd_show_opportunity,
+        "list-opportunities": cmd_list_opportunities,
         # Queries
         "list-pipeline": cmd_list_pipeline,
         "show-position": cmd_show_position,
