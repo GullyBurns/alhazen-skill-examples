@@ -828,6 +828,28 @@ def cmd_link_paper(args):
     }))
 
 
+def cmd_delete_position(args):
+    """Delete a position and all its related data."""
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            check = list(tx.query(f'''match $p isa jobhunt-position, has id "{args.id}";
+            fetch {{ "name": $p.name }};''').resolve())
+        if not check:
+            print(json.dumps({"success": False, "error": "Position not found"}))
+            return
+
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            # Delete relations involving the position
+            tx.query(f'''match $r ($p) isa relation; $p isa jobhunt-position, has id "{args.id}";
+            delete $r;''').resolve()
+            # Delete the position itself
+            tx.query(f'''match $p isa jobhunt-position, has id "{args.id}";
+            delete $p;''').resolve()
+            tx.commit()
+
+    print(json.dumps({"success": True, "deleted": args.id}))
+
+
 def cmd_list_pipeline(args):
     """List positions in the pipeline."""
     with get_driver() as driver:
@@ -2182,6 +2204,9 @@ def main():
     p.add_argument("--id", required=True, help="Artifact ID")
 
     # list-pipeline
+    p = subparsers.add_parser("delete-position", help="Delete a position and all its related data")
+    p.add_argument("--id", required=True, help="Position ID")
+
     p = subparsers.add_parser("list-pipeline", help="Show application pipeline")
     p.add_argument("--status", help="Filter by status")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Filter by priority")
@@ -2253,6 +2278,8 @@ def main():
         "link-collection": cmd_link_collection,
         "link-paper": cmd_link_paper,
         "add-requirement": cmd_add_requirement,
+        # Delete
+        "delete-position": cmd_delete_position,
         # Queries
         "list-pipeline": cmd_list_pipeline,
         "show-position": cmd_show_position,

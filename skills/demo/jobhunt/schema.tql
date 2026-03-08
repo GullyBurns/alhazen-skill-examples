@@ -19,14 +19,14 @@ attribute resource-url, value string;
 attribute linkedin-url, value string;
 
 # Position attributes
-attribute short-name, value string;     # compact identifier for UI (e.g., "anthropic", "langchain")
+attribute short-name, value string;
 attribute salary-range, value string;
 attribute location, value string;
-attribute remote-policy, value string;  # remote/hybrid/onsite
+attribute remote-policy, value string;
 attribute team-size, value string;
 
 # Application tracking
-attribute application-status, value string;  # researching/applied/interviewing/offer/rejected
+attribute application-status, value string;
 attribute applied-date, value datetime;
 attribute interview-date, value datetime;
 attribute deadline, value datetime;
@@ -34,196 +34,46 @@ attribute response-date, value datetime;
 
 # Skill/requirement attributes
 attribute skill-name, value string;
-attribute skill-level, value string;  # required/preferred/nice-to-have
-attribute your-level, value string;   # strong/some/none
+attribute skill-level, value string;
+attribute your-level, value string;
 
 # Learning resource attributes
-attribute resource-type, value string;  # course/book/tutorial/project/video
+attribute resource-type, value string;
 attribute estimated-hours, value integer;
-attribute completion-status, value string;  # not-started/in-progress/completed
+attribute completion-status, value string;
 
 # Contact attributes
-attribute contact-role, value string;  # recruiter/hiring-manager/employee/referral
+attribute contact-role, value string;
 attribute contact-email, value string;
 
 # Fit analysis
-attribute fit-score, value double;  # 0.0-1.0
+attribute fit-score, value double;
 attribute fit-summary, value string;
 
 # Interaction tracking
-attribute interaction-type, value string;  # email/call/coffee/interview/message
+attribute interaction-type, value string;
 attribute interaction-date, value datetime;
 
 # Priority
-attribute priority-level, value string;  # high/medium/low
+attribute priority-level, value string;
 
 # Your skill profile attributes
 attribute last-updated, value datetime;
 
 # Forager attributes (automated job discovery)
-attribute board-token, value string;     # company slug for API
-attribute board-platform, value string;  # "greenhouse", "lever", "linkedin", "remotive", "adzuna"
-attribute external-job-id, value string; # API's job ID for dedup
+attribute board-token, value string;
+attribute board-platform, value string;
+attribute external-job-id, value string;
 attribute discovered-at, value datetime;
-attribute relevance-score, value double; # 0.0-1.0 keyword match
-attribute candidate-status, value string; # new/reviewed/promoted/dismissed
-attribute search-query, value string;      # keywords for aggregator searches
-attribute search-location, value string;   # location filter for aggregator searches
-attribute triage-reason, value string;     # LLM explanation for relevance score
+attribute relevance-score, value double;
+attribute candidate-status, value string;
+attribute search-query, value string;
+attribute search-location, value string;
+attribute triage-reason, value string;
 
 
 # -----------------------------------------------------------------------------
-# ENTITY TYPES - Job Hunting Collections
-# -----------------------------------------------------------------------------
-
-# JOBHUNT-SEARCH - A job search campaign (set of positions being tracked together)
-jobhunt-search sub collection;
-
-
-# -----------------------------------------------------------------------------
-# ENTITY TYPES - Your Profile
-# -----------------------------------------------------------------------------
-
-# YOUR-SKILL - Your personal skill/capability for gap analysis
-your-skill sub domain-thing,
-    owns skill-name,
-    owns skill-level,     # strong/some/none/learning
-    owns last-updated;
-
-
-# -----------------------------------------------------------------------------
-# ENTITY TYPES - Job Hunting Things
-# -----------------------------------------------------------------------------
-
-# JOBHUNT-SEARCH-SOURCE - A company job board to search (forager)
-jobhunt-search-source sub domain-thing,
-    owns board-token,
-    owns board-platform,
-    owns company-url,
-    owns search-query,
-    owns search-location,
-    plays source-provides:source;
-
-# JOBHUNT-CANDIDATE - A discovered job posting (forager, lightweight)
-jobhunt-candidate sub domain-thing,
-    owns job-url,
-    owns external-job-id,
-    owns location,
-    owns discovered-at,
-    owns relevance-score,
-    owns candidate-status,
-    owns triage-reason,
-    plays source-provides:candidate;
-
-# JOBHUNT-COMPANY - An organization/employer
-jobhunt-company sub domain-thing,
-    owns company-url,
-    owns linkedin-url,
-    owns location,
-    plays position-at-company:employer,
-    plays works-at:employer;
-
-# JOBHUNT-POSITION - A specific role/job posting
-jobhunt-position sub domain-thing,
-    owns job-url,
-    owns short-name,
-    owns salary-range,
-    owns location,
-    owns remote-policy,
-    owns team-size,
-    owns deadline,
-    owns priority-level,
-    plays position-at-company:position,
-    plays requirement-for:position;
-
-# JOBHUNT-LEARNING-RESOURCE - Course, tutorial, book, etc.
-jobhunt-learning-resource sub domain-thing,
-    owns resource-type,
-    owns resource-url,
-    owns estimated-hours,
-    owns completion-status,
-    plays addresses-requirement:resource;
-
-# JOBHUNT-CONTACT - A person at a company
-jobhunt-contact sub agent,
-    owns contact-role,
-    owns contact-email,
-    owns linkedin-url,
-    plays works-at:employee;
-
-
-# -----------------------------------------------------------------------------
-# ENTITY TYPES - Job Hunting Artifacts
-# -----------------------------------------------------------------------------
-
-# JOBHUNT-JOB-DESCRIPTION - Full text of job posting
-jobhunt-job-description sub artifact;
-
-# JOBHUNT-RESUME - A version of your resume
-jobhunt-resume sub artifact;
-
-# JOBHUNT-COVER-LETTER - Tailored cover letter
-jobhunt-cover-letter sub artifact;
-
-# JOBHUNT-COMPANY-PAGE - About/careers page content
-jobhunt-company-page sub artifact;
-
-
-# -----------------------------------------------------------------------------
-# ENTITY TYPES - Job Hunting Fragments (extracted from job descriptions)
-# -----------------------------------------------------------------------------
-
-# JOBHUNT-REQUIREMENT - A single requirement extracted from JD
-jobhunt-requirement sub fragment,
-    owns skill-name,
-    owns skill-level,
-    owns your-level,
-    plays requirement-for:requirement,
-    plays addresses-requirement:requirement;
-
-# JOBHUNT-RESPONSIBILITY - A responsibility from the JD
-jobhunt-responsibility sub fragment;
-
-# JOBHUNT-QUALIFICATION - Required/preferred qualification
-jobhunt-qualification sub fragment;
-
-
-# -----------------------------------------------------------------------------
-# ENTITY TYPES - Job Hunting Notes
-# -----------------------------------------------------------------------------
-
-# JOBHUNT-APPLICATION-NOTE - Status tracking, dates
-jobhunt-application-note sub note,
-    owns application-status,
-    owns applied-date,
-    owns response-date;
-
-# JOBHUNT-RESEARCH-NOTE - Company research, culture, news
-jobhunt-research-note sub note;
-
-# JOBHUNT-INTERVIEW-NOTE - Interview prep, feedback
-jobhunt-interview-note sub note,
-    owns interview-date;
-
-# JOBHUNT-STRATEGY-NOTE - Your approach, talking points
-jobhunt-strategy-note sub note;
-
-# JOBHUNT-SKILL-GAP-NOTE - What you need to learn
-jobhunt-skill-gap-note sub note;
-
-# JOBHUNT-FIT-ANALYSIS-NOTE - How well you match a position
-jobhunt-fit-analysis-note sub note,
-    owns fit-score,
-    owns fit-summary;
-
-# JOBHUNT-INTERACTION-NOTE - Record of contact/conversation
-jobhunt-interaction-note sub note,
-    owns interaction-type,
-    owns interaction-date;
-
-
-# -----------------------------------------------------------------------------
-# RELATION TYPES - Job Hunting Specific
+# RELATION TYPES - defined before entities so role names resolve in plays clauses
 # -----------------------------------------------------------------------------
 
 # POSITION-AT-COMPANY - Links position to employer
@@ -256,7 +106,139 @@ relation works-at,
 
 
 # -----------------------------------------------------------------------------
-# CROSS-NAMESPACE EXTENSIONS - Allow core types to participate in jobhunt relations
+# ENTITY TYPES - Job Hunting Collections
+# -----------------------------------------------------------------------------
+
+# JOBHUNT-SEARCH - A job search campaign (set of positions being tracked together)
+entity jobhunt-search sub collection;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - Your Profile
+# -----------------------------------------------------------------------------
+
+# YOUR-SKILL - Your personal skill/capability for gap analysis
+entity your-skill sub domain-thing,
+    owns skill-name,
+    owns skill-level,
+    owns last-updated;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - Job Hunting Things
+# -----------------------------------------------------------------------------
+
+# JOBHUNT-SEARCH-SOURCE - A company job board to search (forager)
+entity jobhunt-search-source sub domain-thing,
+    owns board-token,
+    owns board-platform,
+    owns company-url,
+    owns search-query,
+    owns search-location,
+    plays source-provides:source;
+
+# JOBHUNT-CANDIDATE - A discovered job posting (forager, lightweight)
+entity jobhunt-candidate sub domain-thing,
+    owns job-url,
+    owns external-job-id,
+    owns location,
+    owns discovered-at,
+    owns relevance-score,
+    owns candidate-status,
+    owns triage-reason,
+    plays source-provides:candidate;
+
+# JOBHUNT-COMPANY - An organization/employer
+entity jobhunt-company sub domain-thing,
+    owns company-url,
+    owns linkedin-url,
+    owns location,
+    plays position-at-company:employer,
+    plays works-at:employer;
+
+# JOBHUNT-POSITION - A specific role/job posting
+entity jobhunt-position sub domain-thing,
+    owns job-url,
+    owns short-name,
+    owns salary-range,
+    owns location,
+    owns remote-policy,
+    owns team-size,
+    owns deadline,
+    owns priority-level,
+    plays position-at-company:position,
+    plays requirement-for:position;
+
+# JOBHUNT-LEARNING-RESOURCE - Course, tutorial, book, etc.
+entity jobhunt-learning-resource sub domain-thing,
+    owns resource-type,
+    owns resource-url,
+    owns estimated-hours,
+    owns completion-status,
+    plays addresses-requirement:resource;
+
+# JOBHUNT-CONTACT - A person at a company
+entity jobhunt-contact sub agent,
+    owns contact-role,
+    owns contact-email,
+    owns linkedin-url,
+    plays works-at:employee;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - Job Hunting Artifacts
+# -----------------------------------------------------------------------------
+
+entity jobhunt-job-description sub artifact;
+entity jobhunt-resume sub artifact;
+entity jobhunt-cover-letter sub artifact;
+entity jobhunt-company-page sub artifact;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - Job Hunting Fragments (extracted from job descriptions)
+# -----------------------------------------------------------------------------
+
+# JOBHUNT-REQUIREMENT - A single requirement extracted from JD
+entity jobhunt-requirement sub fragment,
+    owns skill-name,
+    owns skill-level,
+    owns your-level,
+    plays requirement-for:requirement,
+    plays addresses-requirement:requirement;
+
+entity jobhunt-responsibility sub fragment;
+entity jobhunt-qualification sub fragment;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - Job Hunting Notes
+# -----------------------------------------------------------------------------
+
+entity jobhunt-application-note sub note,
+    owns application-status,
+    owns applied-date,
+    owns response-date;
+
+entity jobhunt-research-note sub note;
+
+entity jobhunt-interview-note sub note,
+    owns interview-date;
+
+entity jobhunt-strategy-note sub note;
+entity jobhunt-skill-gap-note sub note;
+
+entity jobhunt-fit-analysis-note sub note,
+    owns fit-score,
+    owns fit-summary;
+
+entity jobhunt-interaction-note sub note,
+    owns interaction-type,
+    owns interaction-date;
+
+
+# -----------------------------------------------------------------------------
+# CROSS-NAMESPACE EXTENSIONS
 # -----------------------------------------------------------------------------
 
 # Allow paper collections to address skill requirements (bridges scilit <-> jobhunt)
