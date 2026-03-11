@@ -504,19 +504,42 @@ def _parse_pubmed_xml(xml_text: str) -> list:
 # OPENALEX CONNECTOR
 # =============================================================================
 
-def search_openalex(query: str, max_results: int = 20) -> list:
-    """Search OpenAlex /works endpoint. Returns normalized paper dicts."""
-    params = {
-        "search": query,
-        "per_page": min(max_results, 200),
-        "select": "id,display_name,abstract_inverted_index,doi,ids,publication_year,primary_location,type",
-    }
-    if OPENALEX_API_KEY:
-        params["api_key"] = OPENALEX_API_KEY
+def search_openalex(query: str, max_results: int = 20, filter_str: str = None) -> list:
+    """Search OpenAlex /works endpoint. Returns normalized paper dicts.
 
-    r = requests.get(f"{OPENALEX_BASE}/works", params=params, headers=HEADERS, timeout=30)
-    r.raise_for_status()
-    return [_normalize_openalex(w) for w in r.json().get("results", [])]
+    If filter_str is provided (e.g. 'cites:W2565424224'), it is used instead of the
+    search param, enabling citation lookups and other filter-based queries.
+    Paginates automatically up to max_results.
+    """
+    select = "id,display_name,abstract_inverted_index,doi,ids,publication_year,primary_location,type"
+    results = []
+    cursor = "*"
+    per_page = min(max_results, 200)
+
+    while len(results) < max_results:
+        params = {
+            "per_page": min(per_page, max_results - len(results)),
+            "select": select,
+            "cursor": cursor,
+        }
+        if filter_str:
+            params["filter"] = filter_str
+        else:
+            params["search"] = query
+        if OPENALEX_API_KEY:
+            params["api_key"] = OPENALEX_API_KEY
+
+        r = requests.get(f"{OPENALEX_BASE}/works", params=params, headers=HEADERS, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        batch = data.get("results", [])
+        results.extend(batch)
+        next_cursor = data.get("meta", {}).get("next_cursor")
+        if not next_cursor or not batch:
+            break
+        cursor = next_cursor
+
+    return [_normalize_openalex(w) for w in results[:max_results]]
 
 
 def _normalize_openalex(work: dict) -> dict:
@@ -714,7 +737,7 @@ def cmd_search(args):
         if source == "pubmed":
             papers = search_pubmed(query, args.max_results or 20)
         elif source == "openalex":
-            papers = search_openalex(query, args.max_results or 20)
+            papers = search_openalex(query, args.max_results or 20, filter_str=getattr(args, "filter", None))
         elif source in ("biorxiv", "medrxiv"):
             papers = search_biorxiv(query, args.max_results or 20, server=source)
         else:
@@ -778,6 +801,11 @@ def cmd_ingest(args):
             print(f"Ingesting DOI: {doi}", file=sys.stderr)
             existing_id = paper_exists(driver, doi=doi)
             if existing_id:
+                if args.collection:
+                    try:
+                        add_to_collection(driver, existing_id, args.collection)
+                    except Exception as e:
+                        print(f"Warning: could not add to collection: {e}", file=sys.stderr)
                 print(json.dumps({"success": True, "paper_id": existing_id, "status": "existing"}))
                 return
 
@@ -794,6 +822,11 @@ def cmd_ingest(args):
             print(f"Ingesting PMID: {pmid}", file=sys.stderr)
             existing_id = paper_exists(driver, pmid=pmid)
             if existing_id:
+                if args.collection:
+                    try:
+                        add_to_collection(driver, existing_id, args.collection)
+                    except Exception as e:
+                        print(f"Warning: could not add to collection: {e}", file=sys.stderr)
                 print(json.dumps({"success": True, "paper_id": existing_id, "status": "existing"}))
                 return
 
@@ -899,6 +932,57 @@ def cmd_list_collections(args):
             ).resolve())
 
     print(json.dumps({"success": True, "collections": results, "count": len(results)}, indent=2))
+
+
+def cmd_list_by_keyword(args):
+    """List papers tagged with a keyword, optionally scoped to a collection."""
+    keyword = args.keyword
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            if args.collection:
+                query = (
+                    f'match $c isa collection, has id "{escape_string(args.collection)}"; '
+                    f'(collection: $c, member: $p) isa collection-membership; '
+                    f'$p isa scilit-paper, has keyword "{escape_string(keyword)}", '
+                    f'has publication-year $yr; '
+                    f'fetch {{ "id": $p.id, "name": $p.name, "abstract": $p.abstract-text, '
+                    f'"year": $yr, "doi": $p.doi, "journal": $p.journal-name }};'
+                )
+            else:
+                query = (
+                    f'match $p isa scilit-paper, has keyword "{escape_string(keyword)}", '
+                    f'has publication-year $yr; '
+                    f'fetch {{ "id": $p.id, "name": $p.name, "abstract": $p.abstract-text, '
+                    f'"year": $yr, "doi": $p.doi, "journal": $p.journal-name }};'
+                )
+            results = list(tx.query(query).resolve())
+
+    papers = [{k: v for k, v in r.items() if v is not None} for r in results]
+
+    # Apply year-range filter in Python
+    if args.year_from:
+        papers = [p for p in papers if p.get("year") and int(p["year"]) >= args.year_from]
+    if args.year_to:
+        papers = [p for p in papers if p.get("year") and int(p["year"]) <= args.year_to]
+
+    # Sort by year ascending
+    papers.sort(key=lambda p: int(p.get("year", 0)))
+
+    # Apply limit
+    if args.limit:
+        papers = papers[:args.limit]
+
+    years = [int(p["year"]) for p in papers if p.get("year")]
+    year_range = [min(years), max(years)] if years else []
+
+    print(json.dumps({
+        "success": True,
+        "keyword": keyword,
+        "collection": args.collection,
+        "count": len(papers),
+        "year_range": year_range,
+        "papers": papers,
+    }, indent=2))
 
 
 # =============================================================================
@@ -1242,11 +1326,12 @@ def main():
     p.add_argument("--source", required=True,
                    choices=["epmc", "pubmed", "openalex", "biorxiv", "medrxiv"],
                    help="Literature source to search")
-    p.add_argument("--query", "-q", required=True, help="Search query")
+    p.add_argument("--query", "-q", default="", help="Search query (required for epmc/pubmed/biorxiv; optional for openalex when --filter is used)")
     p.add_argument("--collection", "-c", help="Collection name (EPMC) or ID (others)")
     p.add_argument("--collection-id", help="Specific collection ID (EPMC: overrides auto-generated ID)")
     p.add_argument("--max-results", "-m", type=int, help="Maximum results to fetch")
     p.add_argument("--page-size", type=int, default=DEFAULT_PAGE_SIZE, help="EPMC: results per page")
+    p.add_argument("--filter", help="OpenAlex filter string (e.g. 'cites:W2565424224'); overrides --query for OpenAlex")
 
     # count
     p = subparsers.add_parser("count", help="Count EPMC results for a query (no storage)")
@@ -1268,6 +1353,14 @@ def main():
 
     # list-collections
     subparsers.add_parser("list-collections", help="List all scilit search collections")
+
+    # list-by-keyword
+    p = subparsers.add_parser("list-by-keyword", help="List papers tagged with a keyword")
+    p.add_argument("--keyword", "-k", required=True, help="Keyword tag to filter by")
+    p.add_argument("--collection", "-c", help="Scope to this collection ID")
+    p.add_argument("--year-from", type=int, dest="year_from", help="Earliest year (inclusive)")
+    p.add_argument("--year-to", type=int, dest="year_to", help="Latest year (inclusive)")
+    p.add_argument("--limit", "-n", type=int, help="Max results to return")
 
     # embed
     p = subparsers.add_parser("embed", help="Embed collection papers with Voyage AI into Qdrant")
@@ -1324,6 +1417,7 @@ def main():
         "show": cmd_show,
         "list": cmd_list,
         "list-collections": cmd_list_collections,
+        "list-by-keyword": cmd_list_by_keyword,
         "embed": cmd_embed,
         "search-semantic": cmd_search_semantic,
         "cluster": cmd_cluster,
