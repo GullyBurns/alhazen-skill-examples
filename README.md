@@ -1,6 +1,6 @@
 # alhazen-skill-examples
 
-Example skills for the [Alhazen](https://github.com/GullyBurns/skillful-alhazen) knowledge notebook framework.
+Example skills for the [Skillful Alhazen](https://github.com/GullyBurns/skillful-alhazen) knowledge notebook framework.
 
 ## What is this?
 

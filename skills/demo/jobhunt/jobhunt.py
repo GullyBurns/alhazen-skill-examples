@@ -1408,8 +1408,8 @@ def cmd_show_gaps(args):
                 (requirement: $r, position: $p) isa requirement-for;
                 (note: $n, subject: $p) isa aboutness;
                 $n isa jobhunt-application-note, has application-status $status;
-                not { $status = "rejected"; };
-                not { $status = "withdrawn"; };
+                not { $status == "rejected"; };
+                not { $status == "withdrawn"; };
             fetch {
                 "skill-name": $r.skill-name,
                 "skill-level": $r.skill-level,
