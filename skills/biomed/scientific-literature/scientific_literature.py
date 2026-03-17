@@ -108,6 +108,10 @@ DEFAULT_PAGE_SIZE = 1000
 REQUEST_TIMEOUT = 60
 HEADERS = {"User-Agent": "skillful-alhazen/0.1 (mailto:alhazen@example.com)"}
 
+ESEARCH_PAGE_SIZE = 500   # PMIDs per esearch pagination page
+EFETCH_BATCH_SIZE = 200   # PMIDs per efetch POST batch (avoids GET URL length limits)
+NCBI_RATE_LIMIT   = 0.34  # minimum seconds between NCBI requests (3 req/sec without key)
+
 
 # =============================================================================
 # TYPEDB HELPERS
@@ -424,29 +428,84 @@ def _ncbi_params(**kwargs):
     return params
 
 
-def search_pubmed(query: str, max_results: int = 20) -> list:
-    """Search PubMed via Entrez esearch + efetch. Returns normalized paper dicts."""
+def _esearch_paginated(query: str, max_results: int) -> list:
+    """Collect PubMed IDs via paginated esearch (retstart/retmax chunks).
+
+    Mirrors ESearchQuery.execute_query() from alhazen searchEngineUtils:
+    - Gets total count first, then pages through results in ESEARCH_PAGE_SIZE chunks
+    - Respects NCBI rate limit between pages
+    - Returns up to max_results PMIDs
+    """
+    # First: get total hit count
     r = requests.get(
         f"{NCBI_BASE}/esearch.fcgi",
-        params=_ncbi_params(db="pubmed", term=query, retmax=max_results, usehistory="y"),
+        params=_ncbi_params(db="pubmed", term=query, retmax=0),
         headers=HEADERS,
         timeout=30,
     )
     r.raise_for_status()
-    id_list = r.json().get("esearchresult", {}).get("idlist", [])
-    if not id_list:
+    total = int(r.json().get("esearchresult", {}).get("count", 0))
+    to_fetch = min(total, max_results)
+    if to_fetch == 0:
         return []
 
-    time.sleep(0.34)
+    ids = []
+    for start in range(0, to_fetch, ESEARCH_PAGE_SIZE):
+        batch_size = min(ESEARCH_PAGE_SIZE, to_fetch - start)
+        time.sleep(NCBI_RATE_LIMIT)
+        r = requests.get(
+            f"{NCBI_BASE}/esearch.fcgi",
+            params=_ncbi_params(db="pubmed", term=query, retmax=batch_size, retstart=start),
+            headers=HEADERS,
+            timeout=30,
+        )
+        r.raise_for_status()
+        ids.extend(r.json().get("esearchresult", {}).get("idlist", []))
 
-    r = requests.get(
-        f"{NCBI_BASE}/efetch.fcgi",
-        params=_ncbi_params(db="pubmed", id=",".join(id_list), rettype="abstract", retmode="xml"),
-        headers=HEADERS,
-        timeout=60,
-    )
-    r.raise_for_status()
-    return _parse_pubmed_xml(r.text)
+    return ids[:to_fetch]
+
+
+def _efetch_batched(pmids: list) -> list:
+    """Fetch PubMed records for a list of PMIDs using batched POST requests.
+
+    Mirrors EFetchQuery.generate_data_frame_from_id_list() from alhazen searchEngineUtils:
+    - Sends IDs as POST form data in EFETCH_BATCH_SIZE chunks
+    - POST avoids HTTP 414 (Request-URI Too Long) from large ID lists in GET params
+    - Respects NCBI rate limit between batches
+    """
+    papers = []
+    for i in range(0, len(pmids), EFETCH_BATCH_SIZE):
+        batch = pmids[i:i + EFETCH_BATCH_SIZE]
+        data = {"db": "pubmed", "retmode": "xml", "rettype": "abstract", "id": ",".join(batch)}
+        if NCBI_API_KEY:
+            data["api_key"] = NCBI_API_KEY
+        r = requests.post(
+            f"{NCBI_BASE}/efetch.fcgi",
+            data=data,
+            headers=HEADERS,
+            timeout=60,
+        )
+        r.raise_for_status()
+        papers.extend(_parse_pubmed_xml(r.text))
+        if i + EFETCH_BATCH_SIZE < len(pmids):
+            time.sleep(NCBI_RATE_LIMIT)
+    return papers
+
+
+def search_pubmed(query: str, max_results: int = 20) -> list:
+    """Search PubMed using paginated esearch + batched POST efetch.
+
+    Handles queries returning any number of results:
+    - esearch is paginated (ESEARCH_PAGE_SIZE per page with retstart/retmax)
+    - efetch uses POST in batches of EFETCH_BATCH_SIZE, avoiding URL length limits
+    Both patterns adapted from alhazen.utils.searchEngineUtils (ESearchQuery /
+    EFetchQuery classes).
+    """
+    pmids = _esearch_paginated(query, max_results)
+    if not pmids:
+        return []
+    time.sleep(NCBI_RATE_LIMIT)
+    return _efetch_batched(pmids)
 
 
 def _parse_pubmed_xml(xml_text: str) -> list:
