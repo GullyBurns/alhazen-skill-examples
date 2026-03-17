@@ -839,10 +839,7 @@ def cmd_delete_position(args):
             return
 
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-            # Delete relations involving the position
-            tx.query(f'''match $r ($p) isa relation; $p isa jobhunt-position, has id "{args.id}";
-            delete $r;''').resolve()
-            # Delete the position itself
+            # Delete the position entity (TypeDB cascades owned attributes)
             tx.query(f'''match $p isa jobhunt-position, has id "{args.id}";
             delete $p;''').resolve()
             tx.commit()
