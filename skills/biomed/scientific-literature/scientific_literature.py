@@ -759,6 +759,11 @@ def cmd_search(args):
                 if existing_id:
                     skipped += 1
                     result_papers.append({"id": existing_id, "title": paper["title"], "status": "existing"})
+                    if collection_id:
+                        try:
+                            add_to_collection(driver, existing_id, collection_id)
+                        except Exception as e:
+                            print(f"Warning: could not add {existing_id} to collection: {e}", file=sys.stderr)
                     continue
 
                 pid = insert_paper(driver, paper)
