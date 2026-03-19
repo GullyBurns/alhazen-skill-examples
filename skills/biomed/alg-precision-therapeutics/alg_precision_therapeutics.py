@@ -2020,7 +2020,9 @@ def cmd_show_repurposing(args):
                         $d1 isa apt-disease, has apt-mondo-id $mid;
                         $mid == "{escape_string(mondo_id)}";
                         $d2 isa apt-disease;
-                        $d1 != $d2;
+                        $d1 has id $did1;
+                        $d2 has id $did2;
+                        $did1 != $did2;
                         (disease: $d1, mechanism: $m1) isa apt-disease-has-mechanism;
                         (disease: $d2, mechanism: $m2) isa apt-disease-has-mechanism;
                         $m1 has apt-mechanism-type $mtype;
@@ -2040,7 +2042,9 @@ def cmd_show_repurposing(args):
                     match
                         $d1 isa apt-disease;
                         $d2 isa apt-disease;
-                        $d1 != $d2;
+                        $d1 has id $did1;
+                        $d2 has id $did2;
+                        $did1 != $did2;
                         (disease: $d1, mechanism: $m1) isa apt-disease-has-mechanism;
                         (disease: $d2, mechanism: $m2) isa apt-disease-has-mechanism;
                         $m1 has apt-mechanism-type $mtype;
@@ -2076,7 +2080,9 @@ def cmd_show_sibling_diseases(args):
                     $d1 isa apt-disease, has apt-mondo-id $mid;
                     $mid == "{escape_string(mondo_id)}";
                     $d2 isa apt-disease;
-                    $d1 != $d2;
+                    $d1 has id $did1;
+                    $d2 has id $did2;
+                    $did1 != $did2;
                     (disease: $d1, mechanism: $m1) isa apt-disease-has-mechanism;
                     (disease: $d2, mechanism: $m2) isa apt-disease-has-mechanism;
                     $m1 has apt-mechanism-type $mtype;
