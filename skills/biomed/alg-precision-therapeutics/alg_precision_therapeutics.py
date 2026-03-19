@@ -24,8 +24,9 @@ Commands:
     ingest-phenotypes       Ingest HPO phenotype associations from Monarch
     ingest-genes            Ingest causal and correlated gene associations from Monarch
     ingest-hierarchy        Ingest MONDO subclass hierarchy
-    ingest-drugs            Ingest drug candidates from ChEMBL (per causal gene)
-    ingest-clintrials       Ingest clinical trials from ClinicalTrials.gov
+    ingest-drugs            Ingest drug candidates from ChEMBL (gene-targeted + disease-indicated)
+    ingest-clintrials       Ingest clinical trials from ClinicalTrials.gov (name + MONDO ID)
+    ingest-omim             Ingest OMIM entry: inheritance, allelic variants (needs OMIM_API_KEY)
 
     # Manual Entity Management
     add-mechanism           Add a mechanism of harm entity
@@ -49,6 +50,10 @@ Commands:
     show-phenome            Phenotypic spectrum by frequency tier
     show-genes              Causal genes with association type/evidence
     show-trials             Clinical trials landscape
+    show-gaps               Undrugged mechanisms, unexplained phenotypes, orphan genes
+    show-repurposing        Drugs targeting mechanism types shared across diseases
+    show-sibling-diseases   Diseases sharing mechanism types with query disease
+    export-report           Export comprehensive Markdown report
 
     # Notes and Organization
     add-note                Create a note about any entity
@@ -56,7 +61,7 @@ Commands:
     search-tag              Search entities by tag
 
     # Scaffold
-    build-corpus            Print ready-to-run epmc-search CLI commands
+    build-corpus            Print (or execute) epmc-search CLI commands
 
 Environment:
     TYPEDB_HOST       TypeDB server host (default: localhost)
@@ -405,6 +410,14 @@ def cmd_init_investigation(args):
                 $d isa apt-disease, has id "{disease_id}";
                 $i isa apt-investigation, has id "{investigation_id}";
             insert (collection: $i, member: $d) isa collection-membership;''').resolve()
+            tx.commit()
+
+        # Link investigation directly to disease
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $i isa apt-investigation, has id "{investigation_id}";
+                $d isa apt-disease, has id "{disease_id}";
+            insert (investigation: $i, disease: $d) isa apt-investigation-for-disease;''').resolve()
             tx.commit()
 
     # Store MONDO record artifact
@@ -905,24 +918,40 @@ def cmd_ingest_clintrials(args):
         return
 
     disease_name = disease_info.get("name", "")
+    mondo_id = get_mondo_id(args.disease)
 
-    params = {
-        "query.cond": disease_name,
-        "pageSize": 50,
-        "format": "json",
-    }
     url = f"{CLINTRIALS_BASE_URL}/studies"
     headers = {"Accept": "application/json", "User-Agent": "Alhazen-APT/1.0"}
 
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        print(json.dumps({"success": False, "error": str(e)}))
+    # Collect studies from multiple queries, deduplicate by NCT ID
+    all_studies_by_nct = {}
+    last_data = {}
+    queries_to_run = [{"query.cond": disease_name, "pageSize": 50, "format": "json"}]
+    if mondo_id:
+        queries_to_run.append({
+            "filter.advanced": f"AREA[ConditionSearch]{{{mondo_id}}}",
+            "pageSize": 50,
+            "format": "json",
+        })
+    for params in queries_to_run:
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=30)
+            resp.raise_for_status()
+            q_data = resp.json()
+            last_data = q_data
+            for study in q_data.get("studies", []):
+                nct_id = (study.get("protocolSection", {})
+                          .get("identificationModule", {}).get("nctId", ""))
+                if nct_id and nct_id not in all_studies_by_nct:
+                    all_studies_by_nct[nct_id] = study
+        except Exception:
+            pass
+
+    if not all_studies_by_nct:
+        print(json.dumps({"success": False, "error": "ClinicalTrials API returned no results"}))
         return
 
-    studies = data.get("studies", [])
+    studies = list(all_studies_by_nct.values())
     timestamp = get_timestamp()
     inserted = skipped = 0
 
@@ -980,7 +1009,7 @@ def cmd_ingest_clintrials(args):
         artifact_id=artifact_id,
         artifact_type="apt-clintrials-record",
         name=f"Clinical trials: {disease_name}",
-        content=json.dumps(data, indent=2),
+        content=json.dumps(last_data, indent=2),
         mime_type="application/json",
         source_uri=f"{CLINTRIALS_BASE_URL}/studies?query.cond={disease_name}",
     )
@@ -992,7 +1021,7 @@ def cmd_ingest_clintrials(args):
         "inserted": inserted,
         "skipped": skipped,
         "artifact_id": artifact_id,
-        "message": f"Ingested {inserted} clinical trials.",
+        "message": f"Ingested {inserted} clinical trials (searched by name + MONDO ID).",
     }, indent=2))
 
 
@@ -1128,6 +1157,73 @@ def cmd_ingest_drugs(args):
                                 has provenance "ChEMBL";''').resolve()
                             tx.commit()
 
+    # ChEMBL drug indication by disease (MONDO ID -> EFO/MONDO mapping)
+    mondo_id = get_mondo_id(args.disease)
+    indication_drugs = 0
+    if mondo_id:
+        # ChEMBL accepts MONDO IDs formatted as "MONDO_XXXXXXX" (underscore)
+        efo_id = mondo_id.replace("MONDO:", "MONDO_")
+        try:
+            resp_ind = requests.get(
+                f"{CHEMBL_BASE_URL}/drug_indication.json",
+                params={"efo_id": efo_id, "limit": 50},
+                headers={"Accept": "application/json"},
+                timeout=30,
+            )
+            resp_ind.raise_for_status()
+            indication_data = resp_ind.json()
+        except Exception:
+            indication_data = {}
+
+        for indication in indication_data.get("drug_indications", []):
+            mol_id = indication.get("molecule_chembl_id", "")
+            if not mol_id:
+                continue
+
+            with get_driver() as driver:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                    existing_drug = list(tx.query(f'''
+                        match $dr isa apt-drug, has apt-chembl-id "{escape_string(mol_id)}";
+                        fetch {{ "id": $dr.id }};
+                    ''').resolve())
+
+            if existing_drug:
+                drug_id = existing_drug[0]["id"]
+            else:
+                drug_id = generate_id("apt-drug")
+                mol_name = indication.get("molecule_name") or mol_id
+                with get_driver() as driver:
+                    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                        tx.query(f'''insert $dr isa apt-drug,
+                            has id "{drug_id}",
+                            has name "{escape_string(str(mol_name)[:200])}",
+                            has apt-chembl-id "{escape_string(mol_id)}",
+                            has apt-development-stage "indicated",
+                            has created-at {timestamp};''').resolve()
+                        tx.commit()
+                indication_drugs += 1
+
+            # Link drug to disease via apt-drug-indicated-for
+            with get_driver() as driver:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                    link_exists = list(tx.query(f'''
+                        match
+                            $dr isa apt-drug, has id "{drug_id}";
+                            $d isa apt-disease, has id "{escape_string(args.disease)}";
+                            (drug: $dr, indication: $d) isa apt-drug-indicated-for;
+                        fetch {{ "drug_id": $dr.id }};
+                    ''').resolve())
+
+            if not link_exists:
+                with get_driver() as driver:
+                    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                        tx.query(f'''match
+                            $dr isa apt-drug, has id "{drug_id}";
+                            $d isa apt-disease, has id "{escape_string(args.disease)}";
+                        insert (drug: $dr, indication: $d) isa apt-drug-indicated-for,
+                            has provenance "ChEMBL-indication";''').resolve()
+                        tx.commit()
+
     # Store artifact
     artifact_id = generate_id("apt-artifact")
     save_artifact(
@@ -1144,8 +1240,9 @@ def cmd_ingest_drugs(args):
         "disease_id": args.disease,
         "genes_queried": len(genes),
         "drugs_inserted": total_drugs,
+        "indication_drugs_inserted": indication_drugs,
         "artifact_id": artifact_id,
-        "message": f"Ingested {total_drugs} drugs from ChEMBL.",
+        "message": f"Ingested {total_drugs} gene-targeted + {indication_drugs} indicated drugs from ChEMBL.",
     }, indent=2))
 
 
@@ -1845,6 +1942,432 @@ def cmd_show_trials(args):
 
 
 # =============================================================================
+# GAP ANALYSIS COMMANDS
+# =============================================================================
+
+
+def cmd_show_gaps(args):
+    """Show undrugged mechanisms, unexplained phenotypes, and orphan causal genes."""
+    mondo_id = args.mondo_id
+    if not mondo_id.startswith("MONDO:"):
+        mondo_id = f"MONDO:{mondo_id}"
+
+    with get_driver() as driver:
+        # Undrugged mechanisms (no therapeutic strategy linked)
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            undrugged = list(tx.query(f'''
+                match
+                    $d isa apt-disease, has apt-mondo-id $mid;
+                    $mid == "{escape_string(mondo_id)}";
+                    (disease: $d, mechanism: $m) isa apt-disease-has-mechanism;
+                    not {{ (mechanism: $m, strategy: $s) isa apt-strategy-targets-mechanism; }};
+                fetch {{
+                    "id": $m.id, "name": $m.name, "type": $m.apt-mechanism-type
+                }};
+            ''').resolve())
+
+        # Unexplained phenotypes (not linked to any mechanism)
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            unexplained = list(tx.query(f'''
+                match
+                    $d isa apt-disease, has apt-mondo-id $mid;
+                    $mid == "{escape_string(mondo_id)}";
+                    (disease: $d, phenotype: $p) isa apt-disease-has-phenotype;
+                    not {{ (mechanism: $m, phenotype: $p) isa apt-mechanism-causes-phenotype; }};
+                fetch {{
+                    "hpo_id": $p.apt-hpo-id, "label": $p.apt-hpo-label
+                }};
+            ''').resolve())
+
+        # Orphan causal genes (causal but not in any mechanism)
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            orphan_genes = list(tx.query(f'''
+                match
+                    $d isa apt-disease, has apt-mondo-id $mid;
+                    $mid == "{escape_string(mondo_id)}";
+                    (gene: $g, disease: $d) isa apt-gene-causes-disease;
+                    not {{ (mechanism: $m, gene: $g) isa apt-mechanism-involves-gene; }};
+                fetch {{
+                    "symbol": $g.apt-gene-symbol, "name": $g.name
+                }};
+            ''').resolve())
+
+    print(json.dumps({
+        "success": True,
+        "mondo_id": mondo_id,
+        "undrugged_mechanisms": undrugged,
+        "unexplained_phenotypes": unexplained,
+        "orphan_genes": orphan_genes,
+        "summary": {
+            "undrugged_count": len(undrugged),
+            "unexplained_phenotype_count": len(unexplained),
+            "orphan_gene_count": len(orphan_genes),
+        },
+    }, indent=2))
+
+
+def cmd_show_repurposing(args):
+    """Find drugs targeting mechanism types shared across multiple diseases."""
+    mondo_id = getattr(args, "mondo_id", None)
+    if mondo_id and not mondo_id.startswith("MONDO:"):
+        mondo_id = f"MONDO:{mondo_id}"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            if mondo_id:
+                results = list(tx.query(f'''
+                    match
+                        $d1 isa apt-disease, has apt-mondo-id $mid;
+                        $mid == "{escape_string(mondo_id)}";
+                        $d2 isa apt-disease;
+                        $d1 != $d2;
+                        (disease: $d1, mechanism: $m1) isa apt-disease-has-mechanism;
+                        (disease: $d2, mechanism: $m2) isa apt-disease-has-mechanism;
+                        $m1 has apt-mechanism-type $mtype;
+                        $m2 has apt-mechanism-type $mtype;
+                        (mechanism: $m1, strategy: $s) isa apt-strategy-targets-mechanism;
+                        (strategy: $s, drug: $drug) isa apt-strategy-implements;
+                    fetch {{
+                        "query_disease": $d1.name,
+                        "sibling_disease": $d2.name,
+                        "mechanism_type": $m1.apt-mechanism-type,
+                        "drug_name": $drug.name,
+                        "drug_id": $drug.id
+                    }};
+                ''').resolve())
+            else:
+                results = list(tx.query('''
+                    match
+                        $d1 isa apt-disease;
+                        $d2 isa apt-disease;
+                        $d1 != $d2;
+                        (disease: $d1, mechanism: $m1) isa apt-disease-has-mechanism;
+                        (disease: $d2, mechanism: $m2) isa apt-disease-has-mechanism;
+                        $m1 has apt-mechanism-type $mtype;
+                        $m2 has apt-mechanism-type $mtype;
+                        (mechanism: $m1, strategy: $s) isa apt-strategy-targets-mechanism;
+                        (strategy: $s, drug: $drug) isa apt-strategy-implements;
+                    fetch {
+                        "disease": $d1.name,
+                        "sibling_disease": $d2.name,
+                        "mechanism_type": $m1.apt-mechanism-type,
+                        "drug_name": $drug.name,
+                        "drug_id": $drug.id
+                    };
+                ''').resolve())
+
+    print(json.dumps({
+        "success": True,
+        "count": len(results),
+        "repurposing_opportunities": results,
+    }, indent=2))
+
+
+def cmd_show_sibling_diseases(args):
+    """Find diseases sharing at least one mechanism type with the query disease."""
+    mondo_id = args.mondo_id
+    if not mondo_id.startswith("MONDO:"):
+        mondo_id = f"MONDO:{mondo_id}"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            results = list(tx.query(f'''
+                match
+                    $d1 isa apt-disease, has apt-mondo-id $mid;
+                    $mid == "{escape_string(mondo_id)}";
+                    $d2 isa apt-disease;
+                    $d1 != $d2;
+                    (disease: $d1, mechanism: $m1) isa apt-disease-has-mechanism;
+                    (disease: $d2, mechanism: $m2) isa apt-disease-has-mechanism;
+                    $m1 has apt-mechanism-type $mtype;
+                    $m2 has apt-mechanism-type $mtype;
+                fetch {{
+                    "sibling_disease": $d2.name,
+                    "shared_mechanism_type": $m2.apt-mechanism-type
+                }};
+            ''').resolve())
+
+    print(json.dumps({
+        "success": True,
+        "mondo_id": mondo_id,
+        "count": len(results),
+        "sibling_diseases": results,
+    }, indent=2))
+
+
+def cmd_export_report(args):
+    """Export a comprehensive Markdown report for a disease investigation."""
+    import io
+    from contextlib import redirect_stdout
+
+    mondo_id = args.mondo_id
+    if not mondo_id.startswith("MONDO:"):
+        mondo_id = f"MONDO:{mondo_id}"
+
+    def capture(func, func_args):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            func(func_args)
+        try:
+            return json.loads(buf.getvalue())
+        except json.JSONDecodeError:
+            return {"error": buf.getvalue()[:200]}
+
+    disease_data = capture(cmd_show_disease, type("A", (), {"mondo_id": mondo_id})())
+    mechanisms_data = capture(cmd_show_mechanisms, type("A", (), {"mondo_id": mondo_id})())
+    phenome_data = capture(cmd_show_phenome, type("A", (), {"mondo_id": mondo_id, "disease": ""})())
+    genes_data = capture(cmd_show_genes, type("A", (), {"mondo_id": mondo_id})())
+    tmap_data = capture(cmd_show_therapeutic_map, type("A", (), {"mondo_id": mondo_id})())
+    trials_data = capture(cmd_show_trials, type("A", (), {"mondo_id": mondo_id})())
+    gaps_data = capture(cmd_show_gaps, type("A", (), {"mondo_id": mondo_id})())
+
+    disease = disease_data.get("disease", {})
+    disease_name = disease.get("name", mondo_id)
+
+    lines = [
+        f"# {disease_name} -- Precision Therapeutics Report",
+        "",
+        f"**MONDO ID:** {mondo_id}",
+        f"**OMIM:** {disease.get('omim_id', 'N/A')}",
+        f"**ORPHA:** {disease.get('orpha_id', 'N/A')}",
+        f"**Inheritance:** {disease.get('inheritance_pattern', 'N/A')}",
+        "",
+        "## Disease Overview",
+        "",
+        disease.get("description") or "_No description available._",
+        "",
+        "## Causal Genes",
+        "",
+    ]
+
+    for g in genes_data.get("causal_genes", []):
+        symbol = g.get("symbol") or g.get("id", "unknown")
+        hgnc = g.get("hgnc_id", "")
+        lines.append(f"- **{symbol}**" + (f" ({hgnc})" if hgnc else ""))
+
+    lines += ["", "## Mechanisms of Harm", ""]
+    for m in mechanisms_data.get("mechanisms", []):
+        lines.append(f"### {m.get('name') or m.get('id', 'unknown')}")
+        lines.append(f"- **Type:** {m.get('type', 'N/A')}")
+        lines.append(f"- **Level:** {m.get('level', 'N/A')}")
+        if m.get("description"):
+            lines.append(f"- **Description:** {m['description']}")
+        genes = m.get("genes", [])
+        if genes:
+            syms = ", ".join(g.get("symbol") or g.get("id", "?") for g in genes)
+            lines.append(f"- **Genes:** {syms}")
+        phenos = m.get("phenotypes_caused", [])
+        if phenos:
+            labels = [p.get("label") or p.get("hpo_id", "?") for p in phenos[:5]]
+            lines.append(f"- **Phenotypes caused:** {', '.join(labels)}")
+        lines.append("")
+
+    lines += ["## Phenotypic Spectrum", ""]
+    for tier in phenome_data.get("phenome", []):
+        freq = tier.get("frequency_tier", "unknown")
+        count = tier.get("count", 0)
+        lines.append(f"**{freq}** ({count} phenotypes)")
+        for p in tier.get("phenotypes", [])[:5]:
+            label = p.get("label") or p.get("hpo_id", "?")
+            hpo = p.get("hpo_id", "")
+            lines.append(f"  - {label} ({hpo})")
+    lines.append("")
+
+    lines += ["## Therapeutic Landscape", ""]
+    for m in tmap_data.get("therapeutic_map", []):
+        for s in m.get("strategies", []):
+            lines.append(f"### {s.get('name') or s.get('id', '?')}")
+            lines.append(f"- **Approach:** {s.get('approach', 'N/A')}")
+            lines.append(f"- **Modality:** {s.get('modality', 'N/A')}")
+            drugs = s.get("drugs", [])
+            if drugs:
+                drug_names = ", ".join(d.get("name") or d.get("id", "?") for d in drugs[:5])
+                lines.append(f"- **Drugs:** {drug_names}")
+            lines.append("")
+
+    lines += ["## Clinical Trials", ""]
+    total_trials = trials_data.get("total_trials", 0)
+    lines.append(f"Total: {total_trials} trials")
+    for phase, trial_list in trials_data.get("by_phase", {}).items():
+        lines.append(f"\n**Phase {phase}** ({len(trial_list)} trials)")
+        for t in trial_list[:3]:
+            nct = t.get("nct_id", "")
+            name = t.get("name", nct)
+            lines.append(f"  - {name[:80]} [{nct}]")
+    lines.append("")
+
+    gaps_summary = gaps_data.get("summary", {})
+    lines += [
+        "## Research Gaps",
+        "",
+        f"- Undrugged mechanisms: {gaps_summary.get('undrugged_count', 0)}",
+        f"- Unexplained phenotypes: {gaps_summary.get('unexplained_phenotype_count', 0)}",
+        f"- Orphan causal genes: {gaps_summary.get('orphan_gene_count', 0)}",
+        "",
+    ]
+    for m in gaps_data.get("undrugged_mechanisms", []):
+        lines.append(f"**Undrugged mechanism:** {m.get('name') or m.get('id', '?')} ({m.get('type', 'N/A')})")
+    for p in gaps_data.get("unexplained_phenotypes", [])[:10]:
+        lines.append(f"- Unexplained phenotype: {p.get('label') or p.get('hpo_id', '?')}")
+    for g in gaps_data.get("orphan_genes", []):
+        lines.append(f"- Orphan gene: {g.get('symbol') or g.get('name', '?')}")
+
+    report = "\n".join(lines)
+
+    if getattr(args, "output", None):
+        with open(args.output, "w") as f:
+            f.write(report)
+        print(json.dumps({
+            "success": True,
+            "file": args.output,
+            "sections": ["overview", "genes", "mechanisms", "phenome", "therapeutic-landscape", "trials", "gaps"],
+        }, indent=2))
+    else:
+        print(report)
+
+
+# =============================================================================
+# OMIM INGESTION
+# =============================================================================
+
+
+def cmd_ingest_omim(args):
+    """Ingest OMIM entry: inheritance text, allelic variants. Requires OMIM_API_KEY."""
+    omim_api_key = os.getenv("OMIM_API_KEY", "")
+    if not omim_api_key:
+        print(json.dumps({
+            "success": False,
+            "error": "OMIM_API_KEY not set. Get a free academic key at https://omim.org/api",
+        }))
+        return
+
+    if not REQUESTS_AVAILABLE:
+        print(json.dumps({"success": False, "error": "requests not installed"}))
+        return
+
+    # Get OMIM ID from disease entity
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            results = list(tx.query(f'''
+                match $d isa apt-disease, has id "{escape_string(args.disease)}";
+                fetch {{
+                    "id": $d.id,
+                    "name": $d.name,
+                    "omim_id": $d.apt-omim-id
+                }};
+            ''').resolve())
+
+    if not results:
+        print(json.dumps({"success": False, "error": f"Disease not found: {args.disease}"}))
+        return
+
+    disease_info = results[0]
+    omim_id = disease_info.get("omim_id") or ""
+    if not omim_id:
+        print(json.dumps({
+            "success": False,
+            "error": f"No OMIM ID for disease {args.disease}. Run init-investigation first.",
+        }))
+        return
+
+    mim_number = omim_id.replace("OMIM:", "").strip()
+    disease_name = disease_info.get("name", args.disease)
+
+    try:
+        resp = requests.get(
+            "https://api.omim.org/api/entry",
+            params={
+                "mimNumber": mim_number,
+                "include": "text,allelicVariantList",
+                "format": "json",
+                "apiKey": omim_api_key,
+            },
+            headers={"Accept": "application/json"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(json.dumps({"success": False, "error": str(e)}))
+        return
+
+    # Store OMIM record artifact
+    artifact_id = generate_id("apt-artifact")
+    save_artifact(
+        artifact_id=artifact_id,
+        artifact_type="apt-omim-record",
+        name=f"OMIM record: {disease_name}",
+        content=json.dumps(data, indent=2),
+        mime_type="application/json",
+        source_uri=f"https://api.omim.org/api/entry?mimNumber={mim_number}",
+        extra_attrs=f', has apt-omim-id "{escape_string(omim_id)}"',
+    )
+
+    # Link artifact to disease
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $a isa apt-omim-record, has id "{artifact_id}";
+                $d isa apt-disease, has id "{escape_string(args.disease)}";
+            insert (referent: $d, artifact: $a) isa representation;''').resolve()
+            tx.commit()
+
+    timestamp = get_timestamp()
+    inheritance_updated = False
+    variants_inserted = 0
+
+    for entry_wrapper in data.get("omim", {}).get("entryList", []):
+        entry_data = entry_wrapper.get("entry", {})
+
+        # Extract inheritance from text sections
+        for section_wrapper in entry_data.get("textSectionList", []):
+            ts = section_wrapper.get("textSection", {})
+            if ts.get("textSectionName") == "inheritance":
+                inheritance_text = (ts.get("textSectionContent") or "")[:200]
+                if inheritance_text and not inheritance_updated:
+                    with get_driver() as driver:
+                        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                            tx.query(f'''match
+                                $d isa apt-disease, has id "{escape_string(args.disease)}";
+                            insert $d has apt-inheritance-pattern "{escape_string(inheritance_text)}";
+                            ''').resolve()
+                            tx.commit()
+                    inheritance_updated = True
+
+        # Extract allelic variants
+        for av_wrapper in entry_data.get("allelicVariantList", [])[:20]:
+            av = av_wrapper.get("allelicVariant", {})
+            av_name = av.get("name", "")
+            if not av_name:
+                continue
+            variant_id = generate_id("apt-variant")
+            dbsnp_ids = av.get("dbSnpIds") or []
+            clinvar_id = dbsnp_ids[0] if dbsnp_ids else ""
+            variant_insert = f'''insert $v isa apt-variant,
+                has id "{variant_id}",
+                has name "{escape_string(av_name[:200])}",
+                has created-at {timestamp}'''
+            if clinvar_id:
+                variant_insert += f', has apt-clinvar-id "{escape_string(clinvar_id)}"'
+            variant_insert += ";"
+            with get_driver() as driver:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(variant_insert).resolve()
+                    tx.commit()
+            variants_inserted += 1
+
+    print(json.dumps({
+        "success": True,
+        "disease_id": args.disease,
+        "omim_id": omim_id,
+        "artifact_id": artifact_id,
+        "inheritance_updated": inheritance_updated,
+        "variants_inserted": variants_inserted,
+        "message": f"OMIM data ingested. {variants_inserted} allelic variants added.",
+    }, indent=2))
+
+
+# =============================================================================
 # NOTES AND ORGANIZATION
 # =============================================================================
 
@@ -1936,12 +2459,60 @@ def cmd_build_corpus(args):
     for sym in gene_symbols[:5]:
         commands.append(f'uv run python {script} search --query "{sym} {disease_name}" --collection "{sym} disease" --max-results 20')
 
-    print(json.dumps({
-        "success": True,
-        "disease": disease_name,
-        "commands": commands,
-        "instructions": "Copy-paste these commands to build a literature corpus for mechanism analysis.",
-    }, indent=2))
+    if getattr(args, "execute", False):
+        import subprocess
+        results_by_cmd = []
+        for cmd_str in commands:
+            try:
+                result = subprocess.run(
+                    cmd_str.split(),
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                try:
+                    cmd_result = json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    cmd_result = {"raw": result.stdout[:200], "stderr": result.stderr[:200]}
+                results_by_cmd.append({"command": cmd_str, "result": cmd_result})
+            except Exception as e:
+                results_by_cmd.append({"command": cmd_str, "error": str(e)})
+
+        if getattr(args, "link_to_investigation", None):
+            inv_note_id = generate_id("apt-note")
+            note_content = (
+                f"Literature corpus built for {disease_name}. "
+                f"Collections: {len(commands)} search queries executed."
+            )
+            timestamp = get_timestamp()
+            with get_driver() as driver:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''insert $n isa apt-literature-synthesis-note,
+                        has id "{inv_note_id}",
+                        has name "Literature corpus: {escape_string(disease_name[:80])}",
+                        has content "{escape_string(note_content)}",
+                        has created-at {timestamp};''').resolve()
+                    tx.commit()
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $n isa note, has id "{inv_note_id}";
+                        $e isa entity, has id "{escape_string(args.link_to_investigation)}";
+                    insert (noted-entity: $e, note: $n) isa annotation;''').resolve()
+                    tx.commit()
+
+        print(json.dumps({
+            "success": True,
+            "disease": disease_name,
+            "executed": len(results_by_cmd),
+            "results": results_by_cmd,
+        }, indent=2))
+    else:
+        print(json.dumps({
+            "success": True,
+            "disease": disease_name,
+            "commands": commands,
+            "instructions": "Copy-paste these commands to build a literature corpus for mechanism analysis.",
+        }, indent=2))
 
 
 # =============================================================================
@@ -1985,11 +2556,15 @@ def build_parser():
     p.add_argument("--disease", required=True, help="Disease entity ID")
 
     # ingest-clintrials
-    p = sub.add_parser("ingest-clintrials", help="Ingest clinical trials")
+    p = sub.add_parser("ingest-clintrials", help="Ingest clinical trials (name + MONDO ID)")
     p.add_argument("--disease", required=True, help="Disease entity ID")
 
     # ingest-drugs
-    p = sub.add_parser("ingest-drugs", help="Ingest drug candidates from ChEMBL")
+    p = sub.add_parser("ingest-drugs", help="Ingest drug candidates from ChEMBL (gene + indication)")
+    p.add_argument("--disease", required=True, help="Disease entity ID")
+
+    # ingest-omim
+    p = sub.add_parser("ingest-omim", help="Ingest OMIM entry (requires OMIM_API_KEY)")
     p.add_argument("--disease", required=True, help="Disease entity ID")
 
     # add-mechanism
@@ -2080,6 +2655,23 @@ def build_parser():
     p = sub.add_parser("show-trials", help="Clinical trials landscape")
     p.add_argument("--mondo-id", dest="mondo_id", required=True, help="MONDO ID")
 
+    # show-gaps
+    p = sub.add_parser("show-gaps", help="Undrugged mechanisms, unexplained phenotypes, orphan genes")
+    p.add_argument("--mondo-id", dest="mondo_id", required=True, help="MONDO ID")
+
+    # show-repurposing
+    p = sub.add_parser("show-repurposing", help="Repurposing opportunities via shared mechanism types")
+    p.add_argument("--mondo-id", dest="mondo_id", default="", help="Filter to this disease + siblings")
+
+    # show-sibling-diseases
+    p = sub.add_parser("show-sibling-diseases", help="Diseases sharing mechanism types")
+    p.add_argument("--mondo-id", dest="mondo_id", required=True, help="MONDO ID")
+
+    # export-report
+    p = sub.add_parser("export-report", help="Export comprehensive Markdown report")
+    p.add_argument("--mondo-id", dest="mondo_id", required=True, help="MONDO ID")
+    p.add_argument("--output", default="", help="Output file path (default: stdout)")
+
     # add-note
     p = sub.add_parser("add-note", help="Create a note about an entity")
     p.add_argument("--entity", required=True, help="Entity ID to annotate")
@@ -2096,8 +2688,11 @@ def build_parser():
     p.add_argument("--tag", required=True, help="Tag to search for")
 
     # build-corpus
-    p = sub.add_parser("build-corpus", help="Print epmc-search CLI commands")
+    p = sub.add_parser("build-corpus", help="Print or execute epmc-search CLI commands")
     p.add_argument("--mondo-id", dest="mondo_id", required=True, help="MONDO ID")
+    p.add_argument("--execute", action="store_true", help="Execute commands (not just print)")
+    p.add_argument("--link-to-investigation", dest="link_to_investigation", default="",
+                   help="Link synthesis note to this investigation ID")
 
     return parser
 
@@ -2112,6 +2707,7 @@ COMMAND_MAP = {
     "ingest-hierarchy": cmd_ingest_hierarchy,
     "ingest-clintrials": cmd_ingest_clintrials,
     "ingest-drugs": cmd_ingest_drugs,
+    "ingest-omim": cmd_ingest_omim,
     "add-mechanism": cmd_add_mechanism,
     "add-gene": cmd_add_gene,
     "add-drug": cmd_add_drug,
@@ -2129,6 +2725,10 @@ COMMAND_MAP = {
     "show-phenome": cmd_show_phenome,
     "show-genes": cmd_show_genes,
     "show-trials": cmd_show_trials,
+    "show-gaps": cmd_show_gaps,
+    "show-repurposing": cmd_show_repurposing,
+    "show-sibling-diseases": cmd_show_sibling_diseases,
+    "export-report": cmd_export_report,
     "add-note": cmd_add_note,
     "tag": cmd_tag,
     "search-tag": cmd_search_tag,

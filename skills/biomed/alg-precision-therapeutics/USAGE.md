@@ -57,11 +57,154 @@ uv run python $SCRIPT list-artifacts --disease apt-disease-xxxx
 uv run python $SCRIPT show-artifact --id apt-artifact-xxxx
 ```
 
-Claude reads the artifacts and synthesizes:
-- What mechanism(s) of harm are implied?
-- Which genes are causal vs. associated?
-- What is the phenotypic burden?
-- What therapeutic strategies are rational?
+---
+
+## Sensemaking Protocol
+
+Use this structured protocol when reading artifacts and building the mechanism knowledge graph.
+Run it after Phase 2 ingestion is complete.
+
+### Step 1: Orient — run show-disease + show-genes
+
+```bash
+uv run python $SCRIPT show-disease --mondo-id MONDO:XXXXXXX
+uv run python $SCRIPT show-genes --mondo-id MONDO:XXXXXXX
+```
+
+Establish: How many causal genes? Inheritance pattern? Phenotype count? Are there any mechanisms
+already entered (re-runs)? Note disease_id for subsequent commands.
+
+### Step 2: Read MONDO record artifact
+
+```bash
+uv run python $SCRIPT list-artifacts --disease apt-disease-xxxx
+# Find the apt-mondo-record artifact, then:
+uv run python $SCRIPT show-artifact --id apt-mondo-record-xxxx
+```
+
+Key fields to extract: `name`, `description`, `inheritance`, `xrefs` (OMIM, ORPHA), `synonyms`.
+The description often contains pathomechanism clues.
+
+### Step 3: Read phenotype associations artifact
+
+```bash
+uv run python $SCRIPT show-artifact --id apt-monarch-assoc-record-xxxx
+# (the one named "Phenotype associations: ...")
+```
+
+Scan for: high-frequency phenotypes (obligate/very-frequent) that anchor the core mechanism.
+Group phenotypes by organ system to identify mechanism clusters.
+
+### Step 4: Read gene associations artifact
+
+```bash
+uv run python $SCRIPT show-artifact --id apt-monarch-assoc-record-xxxx
+# (the one named "Gene associations: ...")
+```
+
+Distinguish causal from correlated genes. For monogenic diseases, identify the primary causal gene.
+Note HGNC IDs for literature lookup.
+
+### Step 5: Synthesize mechanism hypotheses
+
+**Prompt template for Claude:**
+> "Disease X is caused by variants in gene Y (mechanism type: LoF-total/GoF/etc.).
+> The key phenotypes are: [list 3-5 most frequent].
+> Based on the gene's known function [from MONDO/Monarch description], propose:
+> 1. The primary molecular mechanism (one of: GoF, LoF-partial, LoF-total, dominant-negative,
+>    haploinsufficiency, toxic-aggregation, pathway-dysregulation)
+> 2. How that mechanism causes the top phenotypes
+> 3. What therapeutic strategies are rational"
+
+**Decision criteria:**
+- One mechanism per distinct pathophysiological pathway (not per phenotype)
+- Split mechanisms only if they have different gene involvement or respond to different strategies
+- Merge if the same therapeutic approach addresses both
+- Use `LoF-total` for null/frameshift variants in recessive disease
+- Use `haploinsufficiency` for dominant disease where one copy is insufficient
+- Use `GoF` for dominant disease where the variant creates a toxic new function
+
+**Mechanism level selection:**
+- `molecular`: protein misfolding, enzyme deficiency, transcription factor loss
+- `cellular`: ER stress, mitochondrial dysfunction, lysosomal storage
+- `tissue`: neurodegeneration, hepatocyte dysfunction, cardiomyopathy
+- `systemic`: metabolic crisis, immune dysregulation
+
+### Step 6: Add mechanisms + link genes + link phenotypes
+
+```bash
+# Add mechanism
+uv run python $SCRIPT add-mechanism \
+  --disease apt-disease-xxxx \
+  --type LoF-total \
+  --level molecular \
+  --description "..."
+
+# Link causal gene (get gene ID from show-genes output)
+uv run python $SCRIPT link-mechanism-gene \
+  --mechanism apt-mechanism-xxxx --gene apt-gene-xxxx
+
+# Link key phenotypes (get phenotype IDs from show-phenome output)
+uv run python $SCRIPT link-mechanism-phenotype \
+  --mechanism apt-mechanism-xxxx --phenotype apt-phenotype-xxxx
+```
+
+Link at minimum: the primary causal gene + the top 3-5 obligate/very-frequent phenotypes.
+
+### Step 7: Formulate therapeutic strategies per mechanism
+
+For each mechanism, add a therapeutic strategy:
+
+```bash
+uv run python $SCRIPT add-strategy \
+  --mechanism apt-mechanism-xxxx \
+  --modality enzyme-replacement \
+  --rationale "Replace deficient enzyme activity via ERT or gene therapy"
+```
+
+**Strategy modality guide:**
+- `enzyme-replacement` — for enzyme deficiencies (LoF-total, LoF-partial)
+- `gene-therapy` — for any LoF where gene delivery is feasible
+- `small-molecule-chaperone` — for misfolding with residual activity (LoF-partial)
+- `antisense-oligonucleotide` — for toxic mRNA (dominant-negative, GoF)
+- `substrate-reduction` — for toxic substrate accumulation upstream of defective enzyme
+- `pathway-activation` — for compensatory pathway upregulation
+- `symptomatic` — for phenotype management without addressing root cause
+
+Link known drugs to strategies:
+
+```bash
+# Check what drugs were ingested from ChEMBL
+uv run python $SCRIPT show-therapeutic-map --mondo-id MONDO:XXXXXXX
+
+# Link drug to mechanism
+uv run python $SCRIPT link-drug-mechanism \
+  --drug apt-drug-xxxx --mechanism apt-mechanism-xxxx
+```
+
+### Step 8: Run show-gaps to find remaining unexplained phenotypes/orphan genes
+
+```bash
+uv run python $SCRIPT show-gaps --mondo-id MONDO:XXXXXXX
+```
+
+For each orphan gene (causal but not in a mechanism): decide whether to create a new mechanism
+or link it to an existing one. For unexplained phenotypes: link to the most plausible mechanism
+or create a second mechanism if they represent a distinct pathophysiology.
+
+**Evidence threshold for linking:** Use `moderate` evidence if the gene is known to be involved
+in the pathway; use `hypothesized` if it is inferred from phenotypic similarity only.
+
+### Step 9: Add apt-research-gaps-note summarizing open questions
+
+```bash
+uv run python $SCRIPT add-note \
+  --entity apt-disease-xxxx \
+  --type apt-research-gaps-note \
+  --content "Open questions: 1. Mechanism for phenotype X not yet explained. 2. Gene Y is causal but pathway unknown. 3. No clinical trials targeting primary mechanism."
+```
+
+---
 
 ### Phase 4: Build Mechanism Knowledge Graph
 
@@ -206,8 +349,9 @@ Therapeutic chain:
 - `ingest-phenotypes --disease DISEASE_ID` — Monarch HPO associations
 - `ingest-genes --disease DISEASE_ID` — Monarch causal/correlated gene associations
 - `ingest-hierarchy --disease DISEASE_ID` — MONDO subclass hierarchy
-- `ingest-clintrials --disease DISEASE_ID` — ClinicalTrials.gov
-- `ingest-drugs --disease DISEASE_ID` — ChEMBL drug-target associations
+- `ingest-clintrials --disease DISEASE_ID` — ClinicalTrials.gov (disease name + MONDO ID filter)
+- `ingest-drugs --disease DISEASE_ID` — ChEMBL drug-target (by gene) + indication (by MONDO)
+- `ingest-omim --disease DISEASE_ID` — OMIM inheritance text + allelic variants (needs `OMIM_API_KEY`)
 
 ### Manual Entity Management
 - `add-mechanism --disease ID --type TYPE --level LEVEL --description TEXT`
@@ -231,7 +375,11 @@ Therapeutic chain:
 - `show-phenome --mondo-id MONDO_ID` — Phenotypic spectrum by frequency
 - `show-genes --mondo-id MONDO_ID` — Causal genes with evidence
 - `show-trials --mondo-id MONDO_ID` — Clinical trials landscape
-- `build-corpus --mondo-id MONDO_ID` — Print epmc-search commands
+- `show-gaps --mondo-id MONDO_ID` — Undrugged mechanisms + unexplained phenotypes + orphan genes
+- `show-repurposing [--mondo-id MONDO_ID]` — Drugs for mechanism types shared across diseases
+- `show-sibling-diseases --mondo-id MONDO_ID` — Diseases sharing mechanism types
+- `export-report --mondo-id MONDO_ID [--output FILE]` — Comprehensive Markdown report
+- `build-corpus --mondo-id MONDO_ID [--execute] [--link-to-investigation ID]` — epmc-search commands
 
 ### Notes and Organization
 - `add-note --entity ID --type TYPE --content TEXT`
@@ -245,8 +393,9 @@ Therapeutic chain:
 | API | Usage | Endpoint |
 |-----|-------|----------|
 | Monarch Initiative v3 | Disease search, phenotypes, genes | `https://api-v3.monarchinitiative.org/v3/api` |
-| ClinicalTrials.gov v2 | Clinical trials by disease name | `https://clinicaltrials.gov/api/v2/studies` |
-| ChEMBL | Drug-target associations by gene | `https://www.ebi.ac.uk/chembl/api/data` |
+| ClinicalTrials.gov v2 | Clinical trials by disease name + MONDO ID | `https://clinicaltrials.gov/api/v2/studies` |
+| ChEMBL | Drug-target (by gene) + disease indication (by MONDO) | `https://www.ebi.ac.uk/chembl/api/data` |
+| OMIM | Inheritance text + allelic variants (needs `OMIM_API_KEY`) | `https://api.omim.org/api/entry` |
 
 ---
 

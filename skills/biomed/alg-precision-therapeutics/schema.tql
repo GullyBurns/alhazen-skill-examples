@@ -126,7 +126,8 @@ attribute apt-similarity-score, value double;
 # APT-INVESTIGATION - An active precision therapeutics investigation (MONDO-rooted)
 entity apt-investigation sub collection,
     owns apt-mondo-id,
-    owns apt-investigation-status;
+    owns apt-investigation-status,
+    plays apt-investigation-for-disease:investigation;
 
 # APT-PATIENT-COHORT - Optional: a set of patients sharing phenotype/genotype
 entity apt-patient-cohort sub collection;
@@ -156,7 +157,8 @@ entity apt-disease sub domain-thing,
     plays apt-drug-indicated-for:indication,
     plays apt-trial-studies:disease,
     plays apt-biomarker-for:disease,
-    plays apt-model-recapitulates:disease;
+    plays apt-model-recapitulates:disease,
+    plays apt-investigation-for-disease:disease;
 
 # APT-GENE - A gene implicated in the disease
 entity apt-gene sub domain-thing,
@@ -472,6 +474,11 @@ relation apt-model-recapitulates,
 relation apt-biomarker-for,
     owns apt-biomarker-type,
     relates biomarker,
+    relates disease;
+
+# APT-INVESTIGATION-FOR-DISEASE - Direct navigation from investigation to its disease
+relation apt-investigation-for-disease,
+    relates investigation,
     relates disease;
 
 
