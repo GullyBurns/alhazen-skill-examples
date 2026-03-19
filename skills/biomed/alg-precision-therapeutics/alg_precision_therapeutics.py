@@ -2391,8 +2391,8 @@ def cmd_add_note(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(f'''match
                 $n isa note, has id "{note_id}";
-                $e isa entity, has id "{escape_string(args.entity)}";
-            insert (noted-entity: $e, note: $n) isa annotation;''').resolve()
+                $e isa identifiable-entity, has id "{escape_string(args.entity)}";
+            insert (note: $n, subject: $e) isa aboutness;''').resolve()
             tx.commit()
 
     print(json.dumps({"success": True, "note_id": note_id, "entity_id": args.entity}, indent=2))
@@ -2403,7 +2403,7 @@ def cmd_tag(args):
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(f'''match
-                $e isa entity, has id "{escape_string(args.entity)}";
+                $e isa identifiable-entity, has id "{escape_string(args.entity)}";
             insert $e has tag "{escape_string(args.tag)}";''').resolve()
             tx.commit()
 
@@ -2415,7 +2415,7 @@ def cmd_search_tag(args):
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             results = list(tx.query(f'''
-                match $e isa entity, has id $eid, has tag "{escape_string(args.tag)}";
+                match $e isa identifiable-entity, has id $eid, has tag "{escape_string(args.tag)}";
                 fetch {{ "id": $e.id, "name": $e.name }};
             ''').resolve())
 
@@ -2496,8 +2496,8 @@ def cmd_build_corpus(args):
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                     tx.query(f'''match
                         $n isa note, has id "{inv_note_id}";
-                        $e isa entity, has id "{escape_string(args.link_to_investigation)}";
-                    insert (noted-entity: $e, note: $n) isa annotation;''').resolve()
+                        $e isa identifiable-entity, has id "{escape_string(args.link_to_investigation)}";
+                    insert (note: $n, subject: $e) isa aboutness;''').resolve()
                     tx.commit()
 
         print(json.dumps({
