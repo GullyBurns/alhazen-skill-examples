@@ -283,4 +283,4 @@ entity techrecon-ml-evaluation-note sub note;
 # =============================================================================
 
 # Extend scilit-paper (from scientific-literature skill) to play the paper role
-redefine entity scilit-paper plays techrecon-references-paper:paper;
+define entity scilit-paper plays techrecon-references-paper:paper;
