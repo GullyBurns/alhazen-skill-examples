@@ -315,7 +315,7 @@ def add_to_collection(driver, entity_id, collection_id):
     with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
         query = f'''match
             $c isa techrecon-investigation, has id "{collection_id}";
-            $e isa entity, has id "{entity_id}";
+            $e isa identifiable-entity, has id "{entity_id}";
         insert (collection: $c, member: $e) isa collection-membership,
             has created-at {timestamp};'''
         tx.query(query).resolve()
@@ -1965,7 +1965,7 @@ def cmd_add_note(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             about_query = f'''match
                 $n isa note, has id "{note_id}";
-                $s isa entity, has id "{args.about}";
+                $s isa identifiable-entity, has id "{args.about}";
             insert (note: $n, subject: $s) isa aboutness;'''
             tx.query(about_query).resolve()
             tx.commit()
