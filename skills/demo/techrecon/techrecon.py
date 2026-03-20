@@ -32,6 +32,7 @@ Commands:
     link-concept          Link concept to component
     link-data-model       Link data model to system
     link-dependency       Link system dependency
+    link-paper            Link system to a scilit-paper (cross-skill)
 
     # Queries
     list-systems          List all systems
@@ -1343,6 +1344,61 @@ def cmd_list_systems(args):
     print(json.dumps({"success": True, "systems": systems, "count": len(systems)}, indent=2))
 
 
+def cmd_link_paper(args):
+    """Link a techrecon-system to an existing scilit-paper via techrecon-references-paper."""
+    with get_driver() as driver:
+        # Verify both entities exist
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            sys_check = list(tx.query(
+                f'match $s isa techrecon-system, has id "{escape_string(args.system_id)}"; '
+                f'fetch {{ "id": $s.id, "name": $s.name }};'
+            ).resolve())
+            paper_check = list(tx.query(
+                f'match $p isa scilit-paper, has id "{escape_string(args.paper_id)}"; '
+                f'fetch {{ "id": $p.id, "name": $p.name }};'
+            ).resolve())
+
+        if not sys_check:
+            print(json.dumps({"success": False, "error": f"System not found: {args.system_id}"}))
+            sys.exit(1)
+        if not paper_check:
+            print(json.dumps({"success": False, "error": f"Paper not found: {args.paper_id}"}))
+            sys.exit(1)
+
+        # Check if link already exists
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            existing = list(tx.query(
+                f'match $s isa techrecon-system, has id "{escape_string(args.system_id)}"; '
+                f'$p isa scilit-paper, has id "{escape_string(args.paper_id)}"; '
+                f'(system: $s, paper: $p) isa techrecon-references-paper; '
+                f'fetch {{ "system": $s.id }};'
+            ).resolve())
+        if existing:
+            print(json.dumps({
+                "success": True, "status": "existing",
+                "system_id": args.system_id, "paper_id": args.paper_id,
+            }, indent=2))
+            return
+
+        # Insert the relation
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(
+                f'match $s isa techrecon-system, has id "{escape_string(args.system_id)}"; '
+                f'$p isa scilit-paper, has id "{escape_string(args.paper_id)}"; '
+                f'insert (system: $s, paper: $p) isa techrecon-references-paper;'
+            ).resolve()
+            tx.commit()
+
+    print(json.dumps({
+        "success": True,
+        "status": "linked",
+        "system_id": args.system_id,
+        "system_name": sys_check[0].get("name"),
+        "paper_id": args.paper_id,
+        "paper_name": paper_check[0].get("name"),
+    }, indent=2))
+
+
 def cmd_show_system(args):
     """Show full system details."""
     with get_driver() as driver:
@@ -1439,6 +1495,17 @@ def cmd_show_system(args):
             }};'''
             tags_result = list(tx.query(tags_query).resolve())
 
+            # Linked scilit-papers
+            papers_query = f'''match
+                $s isa techrecon-system, has id "{args.id}";
+                $p isa scilit-paper;
+                (system: $s, paper: $p) isa techrecon-references-paper;
+            fetch {{
+                "id": $p.id,
+                "name": $p.name
+            }};'''
+            papers_result = list(tx.query(papers_query).resolve())
+
     s = sys_result[0]
     output = {
         "success": True,
@@ -1487,6 +1554,10 @@ def cmd_show_system(args):
             "content": n.get("content"),
         } for n in notes_result],
         "tags": [t.get("name") for t in tags_result],
+        "papers": [{
+            "id": p.get("id"),
+            "name": p.get("name"),
+        } for p in papers_result],
     }
 
     print(json.dumps(output, indent=2, default=str))
@@ -2456,6 +2527,10 @@ def main():
     p.add_argument("--dependency", required=True, help="Dependency system ID")
     p.add_argument("--version", help="Version constraint")
 
+    p = subparsers.add_parser("link-paper", help="Link a system to a scilit-paper")
+    p.add_argument("--system-id", required=True, dest="system_id", help="techrecon-system ID")
+    p.add_argument("--paper-id", required=True, dest="paper_id", help="scilit-paper ID")
+
     # --- Queries ---
 
     subparsers.add_parser("list-systems", help="List all systems")
@@ -2601,6 +2676,7 @@ def main():
         "link-concept": cmd_link_concept,
         "link-data-model": cmd_link_data_model,
         "link-dependency": cmd_link_dependency,
+        "link-paper": cmd_link_paper,
         # Queries
         "list-systems": cmd_list_systems,
         "show-system": cmd_show_system,

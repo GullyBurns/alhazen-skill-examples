@@ -74,6 +74,11 @@ attribute techrecon-parameter-count, value string;
 # RELATION TYPES - defined before entities so role names resolve in plays clauses
 # -----------------------------------------------------------------------------
 
+# TECHRECON-REFERENCES-PAPER - Cross-skill link from system to its associated scilit-paper
+relation techrecon-references-paper,
+    relates system,
+    relates paper;
+
 # TECHRECON-HAS-COMPONENT - System contains component
 relation techrecon-has-component,
     relates system,
@@ -166,7 +171,8 @@ entity techrecon-system sub domain-thing,
     plays techrecon-system-derived-from:source-system,
     plays techrecon-concept-for-system:system,
     plays techrecon-system-has-benchmark:system,
-    plays techrecon-decision-applies-to:subject;
+    plays techrecon-decision-applies-to:subject,
+    plays techrecon-references-paper:system;
 
 entity techrecon-use-case sub domain-thing,
     owns techrecon-problem-statement,
@@ -275,3 +281,6 @@ entity techrecon-ml-evaluation-note sub note;
 # =============================================================================
 # END TECH RECON NAMESPACE
 # =============================================================================
+
+# Extend scilit-paper (from scientific-literature skill) to play the paper role
+redefine entity scilit-paper plays techrecon-references-paper:paper;
