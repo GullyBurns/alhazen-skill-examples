@@ -44,7 +44,8 @@ const INVESTIGATION_STATUS_COLORS: Record<string, string> = {
   archived: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
 };
 
-function getBadgeColor(map: Record<string, string>, value: string): string {
+function getBadgeColor(map: Record<string, string>, value: string | null | undefined): string {
+  if (!value) return 'bg-slate-500/20 text-slate-300 border-slate-500/30';
   return map[value.toLowerCase()] || 'bg-slate-500/20 text-slate-300 border-slate-500/30';
 }
 
@@ -80,10 +81,10 @@ export function TypeBadge({ type }: { type: string }) {
   );
 }
 
-export function InvestigationStatusBadge({ status }: { status: string }) {
+export function InvestigationStatusBadge({ status }: { status: string | null | undefined }) {
   return (
     <Badge className={getBadgeColor(INVESTIGATION_STATUS_COLORS, status)}>
-      {status}
+      {status ?? '—'}
     </Badge>
   );
 }
