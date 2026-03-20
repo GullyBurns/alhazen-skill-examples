@@ -277,10 +277,10 @@ entity techrecon-provenance-note sub note,
 entity techrecon-use-case-note sub note;
 entity techrecon-ml-evaluation-note sub note;
 
+# Extend scilit-paper (from scientific-literature skill) to play the paper role
+entity scilit-paper plays techrecon-references-paper:paper;
+
 
 # =============================================================================
 # END TECH RECON NAMESPACE
 # =============================================================================
-
-# Extend scilit-paper (from scientific-literature skill) to play the paper role
-define entity scilit-paper plays techrecon-references-paper:paper;
