@@ -1120,13 +1120,13 @@ def cmd_show(args):
                 f'fetch {{ "id": $n.id, "name": $n.name, "content": $n.content }};'
             ).resolve())
 
-        art_results = list(tx.query(
-            f'match $p isa scilit-paper, has id "{escape_string(args.id)}"; '
-            f'$a isa scilit-pdf-fulltext; '
-            f'(artifact: $a, referent: $p) isa representation; '
-            f'fetch {{ "id": $a.id, "source-uri": $a.source-uri, '
-            f'"cache-path": $a.cache-path, "file-size": $a.file-size }};'
-        ).resolve())
+            art_results = list(tx.query(
+                f'match $p isa scilit-paper, has id "{escape_string(args.id)}"; '
+                f'$a isa scilit-pdf-fulltext; '
+                f'(artifact: $a, referent: $p) isa representation; '
+                f'fetch {{ "id": $a.id, "source-uri": $a.source-uri, '
+                f'"cache-path": $a.cache-path, "file-size": $a.file-size }};'
+            ).resolve())
 
     paper = {k: v for k, v in result[0].items() if v is not None}
     print(json.dumps({
