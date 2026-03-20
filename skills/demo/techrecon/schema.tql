@@ -51,6 +51,24 @@ attribute techrecon-problem-statement, value string;
 attribute techrecon-solution-approach, value string;
 attribute techrecon-target-user, value string;
 
+# Benchmark attributes
+attribute techrecon-metric-name, value string;
+attribute techrecon-metric-value, value double;
+attribute techrecon-metric-unit, value string;
+attribute techrecon-metric-context, value string;
+
+# Design-decision attributes
+attribute techrecon-decision-rationale, value string;
+attribute techrecon-alternative-considered, value string;
+attribute techrecon-trade-off, value string;
+attribute techrecon-decision-status, value string;
+
+# ML-specific attributes
+attribute techrecon-model-architecture, value string;
+attribute techrecon-training-methodology, value string;
+attribute techrecon-base-model, value string;
+attribute techrecon-parameter-count, value string;
+
 
 # -----------------------------------------------------------------------------
 # RELATION TYPES - defined before entities so role names resolve in plays clauses
@@ -98,6 +116,16 @@ relation techrecon-concept-for-system,
     relates concept,
     relates system;
 
+# TECHRECON-SYSTEM-HAS-BENCHMARK - System has a quantitative benchmark
+relation techrecon-system-has-benchmark,
+    relates system,
+    relates benchmark;
+
+# TECHRECON-DECISION-APPLIES-TO - Design decision applies to a system or component
+relation techrecon-decision-applies-to,
+    relates decision,
+    relates subject;
+
 
 # -----------------------------------------------------------------------------
 # ENTITY TYPES - Tech Recon Collections
@@ -125,6 +153,10 @@ entity techrecon-system sub domain-thing,
     owns techrecon-origin-project,
     owns techrecon-origin-institution,
     owns techrecon-inspired-by,
+    owns techrecon-model-architecture,
+    owns techrecon-training-methodology,
+    owns techrecon-base-model,
+    owns techrecon-parameter-count,
     plays techrecon-has-component:system,
     plays techrecon-has-data-model:system,
     plays techrecon-system-dependency:dependent,
@@ -132,7 +164,9 @@ entity techrecon-system sub domain-thing,
     plays techrecon-system-addresses:system,
     plays techrecon-system-derived-from:derived-system,
     plays techrecon-system-derived-from:source-system,
-    plays techrecon-concept-for-system:system;
+    plays techrecon-concept-for-system:system,
+    plays techrecon-system-has-benchmark:system,
+    plays techrecon-decision-applies-to:subject;
 
 entity techrecon-use-case sub domain-thing,
     owns techrecon-problem-statement,
@@ -147,7 +181,8 @@ entity techrecon-component sub domain-thing,
     plays techrecon-has-component:component,
     plays techrecon-uses-concept:component,
     plays techrecon-component-dependency:dependent-component,
-    plays techrecon-component-dependency:dependency-component;
+    plays techrecon-component-dependency:dependency-component,
+    plays techrecon-decision-applies-to:subject;
 
 entity techrecon-concept sub domain-thing,
     owns techrecon-concept-category,
@@ -158,6 +193,21 @@ entity techrecon-data-model sub domain-thing,
     owns techrecon-model-format,
     owns techrecon-doc-url,
     plays techrecon-has-data-model:data-model;
+
+
+entity techrecon-benchmark sub domain-thing,
+    owns techrecon-metric-name,
+    owns techrecon-metric-value,
+    owns techrecon-metric-unit,
+    owns techrecon-metric-context,
+    plays techrecon-system-has-benchmark:benchmark;
+
+entity techrecon-design-decision sub domain-thing,
+    owns techrecon-decision-rationale,
+    owns techrecon-alternative-considered,
+    owns techrecon-trade-off,
+    owns techrecon-decision-status,
+    plays techrecon-decision-applies-to:decision;
 
 
 # -----------------------------------------------------------------------------
@@ -219,6 +269,7 @@ entity techrecon-provenance-note sub note,
     owns techrecon-origin-institution;
 
 entity techrecon-use-case-note sub note;
+entity techrecon-ml-evaluation-note sub note;
 
 
 # =============================================================================

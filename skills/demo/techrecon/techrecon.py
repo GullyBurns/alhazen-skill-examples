@@ -51,6 +51,18 @@ Commands:
     tag                   Tag an entity
     search-tag            Search by tag
 
+    # Comparisons
+    list-comparisons      List comparison notes (optionally filtered by investigation)
+    show-comparison       Show a specific comparison note
+
+    # Benchmarks
+    add-benchmark         Add a quantitative performance metric to a system
+    show-benchmarks       Show all benchmarks for a system
+
+    # Design Decisions
+    add-decision          Add a design decision for a system or component
+    show-decisions        Show all design decisions for a system or component
+
     # Cache
     cache-stats           Show cache statistics
 
@@ -1937,6 +1949,7 @@ def cmd_add_note(args):
         "assessment": "techrecon-assessment-note",
         "provenance": "techrecon-provenance-note",
         "use-case": "techrecon-use-case-note",
+        "ml-evaluation": "techrecon-ml-evaluation-note",
         "general": "note",
     }
 
@@ -2050,6 +2063,185 @@ def cmd_add_fragment(args):
         "type": args.type,
         "source": args.source,
         "about": args.about,
+    }))
+
+
+# =============================================================================
+# COMPARISON COMMANDS (Gap 4)
+# =============================================================================
+
+
+def cmd_list_comparisons(args):
+    """List comparison notes, optionally filtered by investigation."""
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            if args.investigation:
+                query = f'''match
+                    $c isa techrecon-investigation, has id "{args.investigation}";
+                    (collection: $c, member: $n) isa collection-membership;
+                    $n isa techrecon-comparison-note;
+                fetch {{ "id": $n.id, "name": $n.name, "content": $n.content, "created-at": $n.created-at }};'''
+            else:
+                query = '''match $n isa techrecon-comparison-note;
+                fetch { "id": $n.id, "name": $n.name, "content": $n.content, "created-at": $n.created-at };'''
+            results = list(tx.query(query).resolve())
+    print(json.dumps({"success": True, "count": len(results), "comparisons": results}))
+
+
+def cmd_show_comparison(args):
+    """Show a specific comparison note."""
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            query = f'''match $n isa techrecon-comparison-note, has id "{args.id}";
+            fetch {{ "id": $n.id, "name": $n.name, "content": $n.content, "created-at": $n.created-at }};'''
+            results = list(tx.query(query).resolve())
+    if not results:
+        print(json.dumps({"success": False, "error": f"Comparison note {args.id} not found"}))
+    else:
+        print(json.dumps({"success": True, "comparison": results[0]}))
+
+
+# =============================================================================
+# BENCHMARK COMMANDS (Gap 5)
+# =============================================================================
+
+
+def cmd_add_benchmark(args):
+    """Add a quantitative performance benchmark to a system."""
+    benchmark_id = generate_id("benchmark")
+    timestamp = get_timestamp()
+
+    query = f'''insert $b isa techrecon-benchmark,
+        has id "{benchmark_id}",
+        has name "{escape_string(args.name)}",
+        has techrecon-metric-name "{escape_string(args.metric)}",
+        has techrecon-metric-value {args.value},
+        has created-at {timestamp}'''
+    if args.unit:
+        query += f', has techrecon-metric-unit "{escape_string(args.unit)}"'
+    if args.context:
+        query += f', has techrecon-metric-context "{escape_string(args.context)}"'
+    query += ";"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(query).resolve()
+            tx.commit()
+
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $s isa techrecon-system, has id "{args.system}";
+                $b isa techrecon-benchmark, has id "{benchmark_id}";
+            insert (system: $s, benchmark: $b) isa techrecon-system-has-benchmark;''').resolve()
+            tx.commit()
+
+    print(json.dumps({
+        "success": True,
+        "benchmark_id": benchmark_id,
+        "metric": args.metric,
+        "value": args.value,
+    }))
+
+
+def cmd_show_benchmarks(args):
+    """Show all benchmarks for a system."""
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            query = f'''match
+                $s isa techrecon-system, has id "{args.system}";
+                (system: $s, benchmark: $b) isa techrecon-system-has-benchmark;
+                $b has techrecon-metric-name $mn;
+                $b has techrecon-metric-value $mv;
+            fetch {{
+                "id": $b.id,
+                "name": $b.name,
+                "metric": $mn,
+                "value": $mv,
+                "unit": $b.techrecon-metric-unit,
+                "context": $b.techrecon-metric-context
+            }};'''
+            results = list(tx.query(query).resolve())
+    print(json.dumps({
+        "success": True,
+        "system": args.system,
+        "count": len(results),
+        "benchmarks": results,
+    }))
+
+
+# =============================================================================
+# DESIGN DECISION COMMANDS (Gap 2)
+# =============================================================================
+
+
+def cmd_add_decision(args):
+    """Add a design decision linked to a system or component."""
+    decision_id = generate_id("decision")
+    timestamp = get_timestamp()
+
+    query = f'''insert $d isa techrecon-design-decision,
+        has id "{decision_id}",
+        has name "{escape_string(args.name)}",
+        has created-at {timestamp}'''
+    if args.rationale:
+        query += f', has techrecon-decision-rationale "{escape_string(args.rationale)}"'
+    if args.alternatives:
+        query += f', has techrecon-alternative-considered "{escape_string(args.alternatives)}"'
+    if args.trade_off:
+        query += f', has techrecon-trade-off "{escape_string(args.trade_off)}"'
+    if args.status:
+        query += f', has techrecon-decision-status "{args.status}"'
+    if args.description:
+        query += f', has description "{escape_string(args.description)}"'
+    query += ";"
+
+    subject_id = args.system or args.component
+    subject_type = "techrecon-system" if args.system else "techrecon-component"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(query).resolve()
+            tx.commit()
+
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $s isa {subject_type}, has id "{subject_id}";
+                $d isa techrecon-design-decision, has id "{decision_id}";
+            insert (decision: $d, subject: $s) isa techrecon-decision-applies-to;''').resolve()
+            tx.commit()
+
+        if args.investigation:
+            add_to_collection(driver, decision_id, args.investigation)
+
+    print(json.dumps({"success": True, "decision_id": decision_id, "name": args.name}))
+
+
+def cmd_show_decisions(args):
+    """Show all design decisions for a system or component."""
+    subject_id = args.system or args.component
+    subject_type = "techrecon-system" if args.system else "techrecon-component"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            query = f'''match
+                $s isa {subject_type}, has id "{subject_id}";
+                (decision: $d, subject: $s) isa techrecon-decision-applies-to;
+            fetch {{
+                "id": $d.id,
+                "name": $d.name,
+                "description": $d.description,
+                "rationale": $d.techrecon-decision-rationale,
+                "alternatives": $d.techrecon-alternative-considered,
+                "trade-off": $d.techrecon-trade-off,
+                "status": $d.techrecon-decision-status,
+                "created-at": $d.created-at
+            }};'''
+            results = list(tx.query(query).resolve())
+    print(json.dumps({
+        "success": True,
+        "subject": subject_id,
+        "count": len(results),
+        "decisions": results,
     }))
 
 
@@ -2288,7 +2480,7 @@ def main():
     p = subparsers.add_parser("add-note", help="Add a note about any entity")
     p.add_argument("--about", required=True, help="Entity ID this note is about")
     p.add_argument("--type", required=True,
-                   choices=["architecture", "design-pattern", "integration", "comparison", "data-model", "assessment", "provenance", "use-case", "general"],
+                   choices=["architecture", "design-pattern", "integration", "comparison", "data-model", "assessment", "provenance", "use-case", "ml-evaluation", "general"],
                    help="Note type")
     p.add_argument("--content", required=True, help="Note content")
     p.add_argument("--name", help="Note title")
@@ -2326,6 +2518,46 @@ def main():
     # --- Cache ---
 
     subparsers.add_parser("cache-stats", help="Show cache statistics")
+
+    # --- Comparison queries ---
+
+    p = subparsers.add_parser("list-comparisons", help="List comparison notes")
+    p.add_argument("--investigation", help="Filter by investigation ID")
+
+    p = subparsers.add_parser("show-comparison", help="Show a comparison note")
+    p.add_argument("--id", required=True, help="Comparison note ID")
+
+    # --- Benchmarks ---
+
+    p = subparsers.add_parser("add-benchmark", help="Add a quantitative metric to a system")
+    p.add_argument("--system", required=True, help="System ID")
+    p.add_argument("--name", required=True, help="Benchmark name (e.g. 'Conclusion accuracy')")
+    p.add_argument("--metric", required=True, help="Metric name (e.g. 'accuracy')")
+    p.add_argument("--value", required=True, type=float, help="Numeric value")
+    p.add_argument("--unit", help="Unit (e.g. '%', 'ms', 'USD/run')")
+    p.add_argument("--context", help="Context note (e.g. 'on 20-step run')")
+
+    p = subparsers.add_parser("show-benchmarks", help="Show benchmarks for a system")
+    p.add_argument("--system", required=True, help="System ID")
+
+    # --- Design decisions ---
+
+    p = subparsers.add_parser("add-decision", help="Add a design decision for a system or component")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--system", help="System ID")
+    g.add_argument("--component", help="Component ID")
+    p.add_argument("--name", required=True, help="Decision name/title")
+    p.add_argument("--rationale", help="Why this decision was made")
+    p.add_argument("--alternatives", help="Alternatives that were considered")
+    p.add_argument("--trade-off", dest="trade_off", help="Trade-offs accepted")
+    p.add_argument("--status", choices=["open", "decided", "revisited"], default="decided", help="Decision status")
+    p.add_argument("--description", help="Additional description")
+    p.add_argument("--investigation", help="Investigation ID")
+
+    p = subparsers.add_parser("show-decisions", help="Show design decisions for a system or component")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--system", help="System ID")
+    g.add_argument("--component", help="Component ID")
 
     # --- Parse and dispatch ---
 
@@ -2378,6 +2610,15 @@ def main():
         "search-tag": cmd_search_tag,
         # Cache
         "cache-stats": cmd_cache_stats,
+        # Comparison queries
+        "list-comparisons": cmd_list_comparisons,
+        "show-comparison": cmd_show_comparison,
+        # Benchmarks
+        "add-benchmark": cmd_add_benchmark,
+        "show-benchmarks": cmd_show_benchmarks,
+        # Design decisions
+        "add-decision": cmd_add_decision,
+        "show-decisions": cmd_show_decisions,
     }
 
     try:
