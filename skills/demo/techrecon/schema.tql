@@ -41,6 +41,16 @@ attribute techrecon-file-language, value string;
 attribute techrecon-integration-priority, value string;
 attribute techrecon-complexity-rating, value string;
 
+# Provenance attributes
+attribute techrecon-origin-project, value string;
+attribute techrecon-origin-institution, value string;
+attribute techrecon-inspired-by, value string;
+
+# Use-case attributes
+attribute techrecon-problem-statement, value string;
+attribute techrecon-solution-approach, value string;
+attribute techrecon-target-user, value string;
+
 
 # -----------------------------------------------------------------------------
 # RELATION TYPES - defined before entities so role names resolve in plays clauses
@@ -73,6 +83,21 @@ relation techrecon-component-dependency,
     relates dependent-component,
     relates dependency-component;
 
+# TECHRECON-SYSTEM-ADDRESSES - System addresses a use-case
+relation techrecon-system-addresses,
+    relates system,
+    relates use-case;
+
+# TECHRECON-SYSTEM-DERIVED-FROM - System derives from a predecessor system
+relation techrecon-system-derived-from,
+    relates derived-system,
+    relates source-system;
+
+# TECHRECON-CONCEPT-FOR-SYSTEM - Concept belongs to a system (not just components)
+relation techrecon-concept-for-system,
+    relates concept,
+    relates system;
+
 
 # -----------------------------------------------------------------------------
 # ENTITY TYPES - Tech Recon Collections
@@ -97,10 +122,23 @@ entity techrecon-system sub domain-thing,
     owns techrecon-license-type,
     owns techrecon-maturity,
     owns techrecon-package-name,
+    owns techrecon-origin-project,
+    owns techrecon-origin-institution,
+    owns techrecon-inspired-by,
     plays techrecon-has-component:system,
     plays techrecon-has-data-model:system,
     plays techrecon-system-dependency:dependent,
-    plays techrecon-system-dependency:dependency;
+    plays techrecon-system-dependency:dependency,
+    plays techrecon-system-addresses:system,
+    plays techrecon-system-derived-from:derived-system,
+    plays techrecon-system-derived-from:source-system,
+    plays techrecon-concept-for-system:system;
+
+entity techrecon-use-case sub domain-thing,
+    owns techrecon-problem-statement,
+    owns techrecon-solution-approach,
+    owns techrecon-target-user,
+    plays techrecon-system-addresses:use-case;
 
 entity techrecon-component sub domain-thing,
     owns techrecon-component-type,
@@ -113,7 +151,8 @@ entity techrecon-component sub domain-thing,
 
 entity techrecon-concept sub domain-thing,
     owns techrecon-concept-category,
-    plays techrecon-uses-concept:concept;
+    plays techrecon-uses-concept:concept,
+    plays techrecon-concept-for-system:concept;
 
 entity techrecon-data-model sub domain-thing,
     owns techrecon-model-format,
@@ -174,6 +213,12 @@ entity techrecon-data-model-note sub note;
 entity techrecon-assessment-note sub note,
     owns techrecon-integration-priority,
     owns techrecon-complexity-rating;
+
+entity techrecon-provenance-note sub note,
+    owns techrecon-origin-project,
+    owns techrecon-origin-institution;
+
+entity techrecon-use-case-note sub note;
 
 
 # =============================================================================

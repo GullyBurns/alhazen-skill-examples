@@ -522,6 +522,9 @@ def cmd_show_investigation(args):
                 ("comparison", "techrecon-comparison-note"),
                 ("data-model", "techrecon-data-model-note"),
                 ("assessment", "techrecon-assessment-note"),
+                ("provenance", "techrecon-provenance-note"),
+                ("use-case", "techrecon-use-case-note"),
+                ("general", "note"),
             ]
             all_notes = []
             for note_type_label, note_type_name in note_types:
@@ -1932,6 +1935,8 @@ def cmd_add_note(args):
         "comparison": "techrecon-comparison-note",
         "data-model": "techrecon-data-model-note",
         "assessment": "techrecon-assessment-note",
+        "provenance": "techrecon-provenance-note",
+        "use-case": "techrecon-use-case-note",
         "general": "note",
     }
 
@@ -2283,7 +2288,7 @@ def main():
     p = subparsers.add_parser("add-note", help="Add a note about any entity")
     p.add_argument("--about", required=True, help="Entity ID this note is about")
     p.add_argument("--type", required=True,
-                   choices=["architecture", "design-pattern", "integration", "comparison", "data-model", "assessment", "general"],
+                   choices=["architecture", "design-pattern", "integration", "comparison", "data-model", "assessment", "provenance", "use-case", "general"],
                    help="Note type")
     p.add_argument("--content", required=True, help="Note content")
     p.add_argument("--name", help="Note title")
