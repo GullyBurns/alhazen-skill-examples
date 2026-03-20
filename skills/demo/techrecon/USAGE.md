@@ -1,5 +1,262 @@
 # Tech Recon — Usage Reference
 
+## Sensemaking Protocol: From Ingestion to Deep Understanding
+
+This protocol guides you from zero to a complete technology investigation. Follow these steps in order. Each step builds on the previous. Read this section before running any commands.
+
+### Step 1: Orient — start-investigation + add-system
+
+Begin by defining what you want to learn and naming the system.
+
+```bash
+INV_ID=$(uv run python .claude/skills/techrecon/techrecon.py start-investigation \
+    --name "Kosmos by Edison Scientific" \
+    --goal "Understand how Kosmos works as an AI scientist: architecture, world model, agent loop" \
+    2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['investigation_id'])")
+
+SYS_ID=$(uv run python .claude/skills/techrecon/techrecon.py add-system \
+    --name "Kosmos" \
+    --description "AI scientist system: reads papers, runs code, builds a structured world model" \
+    --investigation $INV_ID \
+    2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['system_id'])")
+```
+
+Tag immediately with domain and relationship tags:
+
+```bash
+uv run python .claude/skills/techrecon/techrecon.py tag --entity $INV_ID --tag "domain:ai-scientist"
+uv run python .claude/skills/techrecon/techrecon.py tag --entity $SYS_ID --tag "org:edison-scientific"
+```
+
+### Step 2: Ingest primary sources
+
+Ingest the homepage/announcement and any paper first. These give the system's own framing.
+
+```bash
+# Announcement or homepage
+uv run python .claude/skills/techrecon/techrecon.py ingest-doc \
+    --url "https://edisonscientific.com/articles/announcing-kosmos" \
+    --system $SYS_ID --investigation $INV_ID
+
+# GitHub repo (if open-source)
+uv run python .claude/skills/techrecon/techrecon.py ingest-repo \
+    --url "https://github.com/example/system" \
+    --investigation $INV_ID
+```
+
+### Step 3: Add provenance note — where did this come from?
+
+Before analyzing the technology, understand its origin. This shapes everything else.
+
+```bash
+uv run python .claude/skills/techrecon/techrecon.py add-note \
+    --type provenance \
+    --about $SYS_ID \
+    --investigation $INV_ID \
+    --content "## Provenance
+
+Predecessor: [what system/project came before and why it was insufficient]
+Origin org: [who built it, what kind of institution, what motivated them]
+Key insight: [the core design insight that made this system possible]
+Prior art: [what existing work it builds on]
+Publication: [paper/blog/date]"
+```
+
+**What to capture:** predecessor systems, origin institution, the problem that motivated it, key insight that enabled the solution, prior art lineage.
+
+### Step 4: Identify architectural components
+
+Read ingested artifacts, then extract components. Use `show-artifact --id` to read each one.
+
+```bash
+# Add components
+uv run python .claude/skills/techrecon/techrecon.py add-component \
+    --name "Structured World Model" \
+    --system $SYS_ID \
+    --description "Queryable DB of entities, relationships, experimental results; long-term memory across 200+ agent rollouts" \
+    --investigation $INV_ID
+
+# Add key concepts
+uv run python .claude/skills/techrecon/techrecon.py add-concept \
+    --name "World Model Pattern" \
+    --category architecture \
+    --description "Replace context-window memory with a persistent queryable knowledge store shared across agent rollouts" \
+    --investigation $INV_ID
+```
+
+### Step 5: Ingest key source files (if open-source)
+
+Dig into implementation details for the core components identified in Step 4.
+
+```bash
+# Source file
+uv run python .claude/skills/techrecon/techrecon.py ingest-source \
+    --url "https://github.com/example/system/blob/main/core/world_model.py" \
+    --language "Python" --system $SYS_ID
+
+# Schema/config
+uv run python .claude/skills/techrecon/techrecon.py ingest-schema \
+    --url "https://github.com/example/system/blob/main/schema.yaml" \
+    --format "yaml" --system $SYS_ID
+```
+
+### Step 6: Synthesize the architecture note
+
+Now write the architecture note from everything ingested so far.
+
+```bash
+uv run python .claude/skills/techrecon/techrecon.py add-note \
+    --type architecture \
+    --about $SYS_ID \
+    --investigation $INV_ID \
+    --content "## [System] Architecture
+
+### Core Innovation
+[What is the central technical idea?]
+
+### Agent Loop / Processing Pipeline
+[How does data flow? What are the main steps?]
+
+### Key Metrics
+[Performance numbers, scale claims, cost]
+
+### Transparency / Auditability Design
+[How are conclusions traced to sources?]"
+```
+
+### Step 7: Map use cases — what problems does it solve, for whom?
+
+```bash
+uv run python .claude/skills/techrecon/techrecon.py add-note \
+    --type use-case \
+    --about $SYS_ID \
+    --investigation $INV_ID \
+    --content "## Use Cases
+
+### Primary Problem
+[The core limitation or need that drove this system]
+
+### Target Users
+[Who is this for? What prior skill level is assumed?]
+
+### What It Replaces / Improves
+[Alternative approaches and why they fall short]
+
+### Validated Use Cases
+[Concrete examples from the announcement/paper]"
+```
+
+### Step 8: Design pattern notes — what patterns does it embody?
+
+```bash
+uv run python .claude/skills/techrecon/techrecon.py add-note \
+    --type design-pattern \
+    --about $SYS_ID \
+    --investigation $INV_ID \
+    --content "## [Pattern Name]
+
+Pattern: [1-sentence description]
+How it works: [the mechanics]
+Advantages: [why this pattern was chosen]
+Trade-offs: [known limitations]
+Relevance to Alhazen: [direct connection to this project]"
+```
+
+### Step 9: Integration note — how could this connect to Alhazen?
+
+```bash
+uv run python .claude/skills/techrecon/techrecon.py add-note \
+    --type integration \
+    --about $SYS_ID \
+    --investigation $INV_ID \
+    --content "## Integration Potential
+
+### Structural Parallel
+[What does this system share structurally with Alhazen?]
+
+### Integration Opportunities
+1. [As a data source]
+2. [As a pattern to adopt]
+3. [As a sub-curation target from another skill]
+
+### What Alhazen Has That This Doesn't
+[Alhazen's advantages]
+
+### Near-Term Action
+[Concrete next step]" \
+    --priority high \
+    --complexity moderate
+```
+
+### Step 10: Assessment note — maturity, risks, recommendation
+
+```bash
+uv run python .claude/skills/techrecon/techrecon.py add-note \
+    --type assessment \
+    --about $SYS_ID \
+    --investigation $INV_ID \
+    --content "## Assessment
+
+### Maturity
+[Production / beta / research prototype. Evidence base.]
+
+### Validated Claims
+[What has been independently validated?]
+
+### Risks
+[Technical, commercial, provenance, licensing risks]
+
+### Schema Gaps Revealed
+[What questions could NOT be answered with current techrecon schema?]
+
+### Recommendation
+[Should we use this? Integrate it? Monitor it? Pass?]"
+```
+
+### Step 11: Close the investigation
+
+```bash
+uv run python .claude/skills/techrecon/techrecon.py update-investigation \
+    --id $INV_ID --status "complete"
+
+# Verify full investigation
+uv run python .claude/skills/techrecon/techrecon.py show-investigation --id $INV_ID \
+    2>/dev/null | python3 -m json.tool
+```
+
+---
+
+## Cross-Skill Integration Protocol
+
+TechRecon is designed to be called as a sub-curation task from other skills. When APT, scientific-literature, or jobhunt encounter a technology they need to understand, they can invoke a techrecon investigation.
+
+### Pattern: techrecon as pre-step
+
+Before investigating a disease mechanism (APT) or analyzing a paper (scientific-literature), run techrecon on the key computational tools used:
+
+```bash
+# Example: APT wants to understand OpenTargets before using it
+uv run python .claude/skills/techrecon/techrecon.py start-investigation \
+    --name "OpenTargets Platform" \
+    --goal "Understand OpenTargets data model and API to inform APT drug target queries"
+# ... full sensemaking protocol ...
+uv run python .claude/skills/techrecon/techrecon.py tag \
+    --entity $SYS_ID --tag "relates-to:apt"
+```
+
+### Pattern: cross-skill tagging
+
+Tag systems with `relates-to:<skill>` so they appear in cross-skill searches:
+
+```bash
+uv run python .claude/skills/techrecon/techrecon.py tag --entity $SYS_ID --tag "relates-to:apm"
+uv run python .claude/skills/techrecon/techrecon.py tag --entity $SYS_ID --tag "relates-to:scientific-literature"
+uv run python .claude/skills/techrecon/techrecon.py tag --entity $SYS_ID --tag "relates-to:jobhunt"
+uv run python .claude/skills/techrecon/techrecon.py search-tag --tag "relates-to:apm"
+```
+
+---
+
 ## Web Interface
 
 A Next.js dashboard is available for browsing investigations, systems, and architecture maps.
@@ -15,12 +272,6 @@ make dashboard-dev    # starts on http://localhost:3000
 - **Architecture** (`/techrecon/architecture/{id}`) — Architecture map for a system
 - **Investigation Detail** (`/techrecon/investigation/{id}`) — Investigation progress and linked systems
 - **Artifact Viewer** (`/techrecon/artifact/{id}`) — Raw ingested content (READMEs, source, docs)
-
-**Internal organization** (for contributors):
-- Pages: `dashboard/src/app/(techrecon)/techrecon/`
-- Components: `dashboard/src/components/techrecon/`
-- API routes: `dashboard/src/app/api/techrecon/`
-- TypeScript wrapper: `dashboard/src/lib/techrecon.ts`
 
 ---
 
@@ -50,88 +301,6 @@ This fetches:
 - README content (stored as `techrecon-readme` artifact)
 - File tree (stored as `techrecon-file-tree` artifact)
 - Creates a `techrecon-system` entity with extracted metadata
-
----
-
-## Sensemaking: Claude Analyzes Artifacts
-
-### Get Artifacts
-
-```bash
-# List artifacts needing analysis
-uv run python .claude/skills/techrecon/techrecon.py list-artifacts --status raw
-
-# Read artifact content
-uv run python .claude/skills/techrecon/techrecon.py show-artifact --id "artifact-xyz"
-```
-
-### Sensemaking Workflow
-
-**When user says "analyze this system" or "make sense of [repo]":**
-
-1. **Read the README artifact**
-   ```bash
-   uv run python .claude/skills/techrecon/techrecon.py show-artifact --id "artifact-readme-xyz"
-   ```
-
-2. **Read the file tree artifact**
-   ```bash
-   uv run python .claude/skills/techrecon/techrecon.py show-artifact --id "artifact-tree-xyz"
-   ```
-
-3. **Identify architectural components**
-   ```bash
-   uv run python .claude/skills/techrecon/techrecon.py add-component \
-       --name "Query Engine" \
-       --system "system-abc123" \
-       --type "module" \
-       --role "Processes miniKanren queries against biomedical knowledge graphs" \
-       --file-path "medikanren2/"
-   ```
-
-4. **Identify key concepts**
-   ```bash
-   uv run python .claude/skills/techrecon/techrecon.py add-concept \
-       --name "miniKanren" \
-       --category "algorithm" \
-       --description "Relational logic programming language for constraint-based reasoning"
-   ```
-
-5. **Link concepts to components**
-   ```bash
-   uv run python .claude/skills/techrecon/techrecon.py link-concept \
-       --component "component-xyz" \
-       --concept "concept-abc"
-   ```
-
-6. **Identify data models**
-   ```bash
-   uv run python .claude/skills/techrecon/techrecon.py add-data-model \
-       --name "Biolink Model" \
-       --system "system-abc123" \
-       --format "RDF-OWL" \
-       --description "Standardized biomedical knowledge representation"
-   ```
-
-7. **Create architecture note**
-   ```bash
-   uv run python .claude/skills/techrecon/techrecon.py add-note \
-       --about "system-abc123" \
-       --type architecture \
-       --name "mediKanren Architecture Overview" \
-       --content "Three-layer architecture: (1) Data ingestion from UMLS/SemMedDB/RTX-KG2... (2) Indexed graph store... (3) miniKanren query engine..."
-   ```
-
-8. **Create integration assessment**
-   ```bash
-   uv run python .claude/skills/techrecon/techrecon.py add-note \
-       --about "system-abc123" \
-       --type integration \
-       --name "Integration with APM Skill" \
-       --content "mediKanren's drug repurposing queries could power APM Phase 2..." \
-       --priority high \
-       --complexity moderate
-   ```
 
 ---
 
@@ -200,11 +369,13 @@ uv run python .claude/skills/techrecon/techrecon.py search-tag --tag "biomedical
 ```
 
 **Common tag patterns:**
-- `domain:biomedical`, `domain:nlp`, `domain:knowledge-graph`
+- `domain:biomedical`, `domain:nlp`, `domain:knowledge-graph`, `domain:ai-scientist`
 - `lang:python`, `lang:racket`, `lang:rust`
 - `status:deep-dive`, `status:surveyed`, `status:rejected`
 - `integration:high-priority`, `integration:blocked`
-- `relates-to:apm`, `relates-to:jobhunt`
+- `relates-to:apm`, `relates-to:jobhunt`, `relates-to:scientific-literature`
+- `org:academia`, `org:commercial`, `org:nonprofit`
+- `type:multi-agent`, `type:ai-scientist`, `type:knowledge-graph`
 
 ---
 
@@ -215,10 +386,11 @@ uv run python .claude/skills/techrecon/techrecon.py search-tag --tag "biomedical
 | Type | Description |
 |------|-------------|
 | `techrecon-investigation` | An investigation (collection) |
-| `techrecon-system` | Software system/library/framework |
+| `techrecon-system` | Software system/library/framework (owns provenance attrs) |
 | `techrecon-component` | Module/subsystem |
 | `techrecon-concept` | Key concept/pattern/algorithm |
 | `techrecon-data-model` | Data model/schema/ontology |
+| `techrecon-use-case` | Problem/solution mapping (who uses it, what problem it solves) |
 
 ### Artifact Types
 
@@ -242,14 +414,17 @@ uv run python .claude/skills/techrecon/techrecon.py search-tag --tag "biomedical
 
 ### Note Types
 
-| Type | Purpose |
-|------|---------|
-| `techrecon-architecture-note` | System architecture analysis |
-| `techrecon-design-pattern-note` | Design pattern analysis |
-| `techrecon-integration-note` | Integration assessment (has priority, complexity) |
-| `techrecon-comparison-note` | Cross-system comparison |
-| `techrecon-data-model-note` | Data model analysis |
-| `techrecon-assessment-note` | Overall system assessment |
+| `--type` | Schema entity | Purpose |
+|----------|---------------|---------|
+| `architecture` | `techrecon-architecture-note` | System architecture analysis |
+| `design-pattern` | `techrecon-design-pattern-note` | Design pattern analysis |
+| `integration` | `techrecon-integration-note` | Integration assessment (has priority, complexity) |
+| `comparison` | `techrecon-comparison-note` | Cross-system comparison |
+| `data-model` | `techrecon-data-model-note` | Data model analysis |
+| `assessment` | `techrecon-assessment-note` | Overall system assessment |
+| `provenance` | `techrecon-provenance-note` | Origin, predecessor, motivation |
+| `use-case` | `techrecon-use-case-note` | Problem/solution/user mapping |
+| `general` | `note` | Unstructured note |
 
 ### Relations
 
@@ -257,9 +432,12 @@ uv run python .claude/skills/techrecon/techrecon.py search-tag --tag "biomedical
 |----------|-------------|
 | `techrecon-has-component` | System contains component |
 | `techrecon-uses-concept` | Component uses concept |
+| `techrecon-concept-for-system` | Concept belongs to system (not just component) |
 | `techrecon-has-data-model` | System uses data model |
 | `techrecon-system-dependency` | System depends on system |
 | `techrecon-component-dependency` | Component depends on component |
+| `techrecon-system-addresses` | System addresses a use-case |
+| `techrecon-system-derived-from` | System derives from a predecessor system |
 
 ---
 
@@ -295,19 +473,9 @@ uv run python .claude/skills/techrecon/techrecon.py search-tag --tag "biomedical
 
 ---
 
-## Cross-Skill Integration
-
-### TechRecon + APM
-Investigating biomedical tools (mediKanren, Monarch, OpenTargets) to inform APM skill's knowledge base sources and reasoning approaches.
-
-### TechRecon + EPMC Search
-Papers about tools can be searched via epmc-search, then linked to techrecon systems via tags or notes.
-
----
-
 ## TypeDB Reference
 
-- **TechRecon Schema:** `local_resources/typedb/namespaces/techrecon.tql`
+- **TechRecon Schema:** `local_skills/techrecon/schema.tql`
 - **Core Schema:** `local_resources/typedb/alhazen_notebook.tql`
 
 ### Common Pitfalls (TypeDB 3.x)
@@ -315,3 +483,4 @@ Papers about tools can be searched via epmc-search, then linked to techrecon sys
 - **Fetch syntax** — Use `fetch { "key": $var.attr };` (JSON-style)
 - **No sessions** — Use `driver.transaction(database, TransactionType.X)` directly
 - **Update = delete + insert** — Can't modify attributes in place
+- **`entity` is reserved** — Use `isa identifiable-entity` to match any entity by id
