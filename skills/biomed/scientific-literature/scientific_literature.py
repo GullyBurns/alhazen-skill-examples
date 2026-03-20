@@ -76,6 +76,18 @@ except ImportError:
     print("Warning: requests not installed. Run: uv add requests", file=sys.stderr)
 
 try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
+
+try:
+    from skillful_alhazen.utils.cache import save_to_cache, load_from_cache_text
+    CACHE_AVAILABLE = True
+except ImportError:
+    CACHE_AVAILABLE = False
+
+try:
     from tqdm import tqdm
     TQDM_AVAILABLE = True
 except ImportError:
@@ -929,6 +941,164 @@ def cmd_ingest(args):
     }, indent=2))
 
 
+def arxiv_pdf_url(doi: str) -> str | None:
+    """Return arXiv PDF URL from a DOI like '10.48550/arxiv.2511.02824', else None."""
+    doi_lower = doi.lower()
+    if "arxiv." in doi_lower:
+        arxiv_id = doi_lower.split("arxiv.")[-1]
+        return f"https://arxiv.org/pdf/{arxiv_id}"
+    return None
+
+
+def cmd_fetch_pdf(args):
+    """Download a paper PDF, extract full text, save both to disk, store artifact in TypeDB."""
+    if not PDFPLUMBER_AVAILABLE:
+        print(json.dumps({"success": False,
+                          "error": "pdfplumber not installed. Run: uv add pdfplumber"}))
+        sys.exit(1)
+    if not CACHE_AVAILABLE:
+        print(json.dumps({"success": False,
+                          "error": "skillful_alhazen.utils.cache not available"}))
+        sys.exit(1)
+
+    paper_id = args.id
+    pdf_url = None
+    paper_name = ""
+
+    with get_driver() as driver:
+        # Resolve paper from TypeDB
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            results = list(tx.query(
+                f'match $p isa scilit-paper, has id "{escape_string(paper_id)}"; '
+                f'fetch {{ "name": $p.name, "doi": $p.doi, "arxiv-id": $p.arxiv-id }};'
+            ).resolve())
+        if not results:
+            print(json.dumps({"success": False, "error": f"Paper not found: {paper_id}"}))
+            sys.exit(1)
+
+        p = results[0]
+        paper_name = p.get("name") or ""
+        doi = p.get("doi") or ""
+        arxiv_id_attr = p.get("arxiv-id") or ""
+
+        # Check for existing pdf artifact to avoid re-download
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            existing = list(tx.query(
+                f'match $p isa scilit-paper, has id "{escape_string(paper_id)}"; '
+                f'$a isa scilit-pdf-fulltext; '
+                f'(artifact: $a, referent: $p) isa representation; '
+                f'fetch {{ "id": $a.id, "cache-path": $a.cache-path, "source-uri": $a.source-uri }};'
+            ).resolve())
+        if existing and not getattr(args, "force", False):
+            art = existing[0]
+            artifact_id = art.get("id")
+            text_cache_path = art.get("cache-path") or ""
+            pdf_cache_path = (text_cache_path.replace("text/", "pdf/").replace(".txt", ".pdf")
+                              if text_cache_path else "")
+            print(json.dumps({
+                "success": True,
+                "paper_id": paper_id,
+                "artifact_id": artifact_id,
+                "status": "existing",
+                "text_cache_path": text_cache_path,
+                "pdf_cache_path": pdf_cache_path,
+                "source_uri": art.get("source-uri"),
+            }, indent=2))
+            return
+
+    # Build PDF URL
+    if arxiv_id_attr:
+        pdf_url = f"https://arxiv.org/pdf/{arxiv_id_attr}"
+    elif doi:
+        pdf_url = arxiv_pdf_url(doi)
+    if args.url:
+        pdf_url = args.url  # explicit override
+    if not pdf_url:
+        print(json.dumps({"success": False,
+                          "error": "Cannot determine PDF URL. Provide --url explicitly."}))
+        sys.exit(1)
+
+    print(f"Downloading PDF from {pdf_url} ...", file=sys.stderr)
+    resp = requests.get(pdf_url, timeout=60, allow_redirects=True,
+                        headers={"User-Agent": "Mozilla/5.0 (compatible; alhazen/1.0)"})
+    resp.raise_for_status()
+    pdf_bytes = resp.content
+
+    if pdf_bytes[:4] != b"%PDF":
+        print(json.dumps({"success": False,
+                          "error": "Response is not a PDF (bad URL or access denied)"}))
+        sys.exit(1)
+
+    # Generate single artifact_id used as stem for BOTH cache files
+    artifact_id = generate_id("artifact")
+
+    # Save PDF binary  ->  pdf/{artifact_id}.pdf
+    pdf_cache = save_to_cache(artifact_id, pdf_bytes, "application/pdf")
+
+    # Extract full text - NO character cap
+    print(f"Extracting text ({len(pdf_bytes):,} bytes, {pdf_cache['full_path']}) ...",
+          file=sys.stderr)
+    import io as _io
+    all_pages = []
+    with pdfplumber.open(_io.BytesIO(pdf_bytes)) as pdf:
+        page_count = len(pdf.pages)
+        for page in pdf.pages:
+            page_text = page.extract_text() or ""
+            if page_text.strip():
+                all_pages.append(page_text)
+
+    full_text = "\n\n".join(all_pages)
+    print(f"Extracted {len(full_text):,} chars from {page_count} pages.", file=sys.stderr)
+
+    # Save extracted text  ->  text/{artifact_id}.txt
+    text_cache = save_to_cache(artifact_id, full_text, "text/plain")
+
+    timestamp = get_timestamp()
+
+    # Insert scilit-pdf-fulltext artifact into TypeDB
+    name_esc = escape_string(f"{paper_name} [PDF text]")
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(
+                f'insert $a isa scilit-pdf-fulltext, '
+                f'has id "{artifact_id}", '
+                f'has name "{name_esc}", '
+                f'has source-uri "{escape_string(pdf_url)}", '
+                f'has cache-path "{escape_string(text_cache["cache_path"])}", '
+                f'has mime-type "text/plain", '
+                f'has file-size {text_cache["file_size"]}, '
+                f'has content-hash "{text_cache["content_hash"]}", '
+                f'has format "pdf-extracted-text", '
+                f'has created-at {timestamp};'
+            ).resolve()
+            tx.commit()
+
+        # Link artifact -> paper via representation
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(
+                f'match $p isa scilit-paper, has id "{escape_string(paper_id)}"; '
+                f'$a isa scilit-pdf-fulltext, has id "{artifact_id}"; '
+                f'insert (artifact: $a, referent: $p) isa representation;'
+            ).resolve()
+            tx.commit()
+
+    print(json.dumps({
+        "success": True,
+        "paper_id": paper_id,
+        "paper_name": paper_name,
+        "artifact_id": artifact_id,
+        "status": "inserted",
+        "source_uri": pdf_url,
+        "pdf_cache_path": pdf_cache["cache_path"],
+        "text_cache_path": text_cache["cache_path"],
+        "pdf_full_path": pdf_cache["full_path"],
+        "text_full_path": text_cache["full_path"],
+        "page_count": page_count,
+        "char_count": len(full_text),
+        "file_size_bytes": text_cache["file_size"],
+    }, indent=2))
+
+
 def cmd_show(args):
     """Show a paper's details for sensemaking."""
     with get_driver() as driver:
@@ -950,11 +1120,20 @@ def cmd_show(args):
                 f'fetch {{ "id": $n.id, "name": $n.name, "content": $n.content }};'
             ).resolve())
 
+        art_results = list(tx.query(
+            f'match $p isa scilit-paper, has id "{escape_string(args.id)}"; '
+            f'$a isa scilit-pdf-fulltext; '
+            f'(artifact: $a, referent: $p) isa representation; '
+            f'fetch {{ "id": $a.id, "source-uri": $a.source-uri, '
+            f'"cache-path": $a.cache-path, "file-size": $a.file-size }};'
+        ).resolve())
+
     paper = {k: v for k, v in result[0].items() if v is not None}
     print(json.dumps({
         "success": True,
         "paper": paper,
         "notes": [{k: v for k, v in n.items() if v is not None} for n in notes],
+        "pdf_artifacts": [{k: v for k, v in a.items() if v is not None} for a in art_results],
     }, indent=2))
 
 
@@ -1407,6 +1586,16 @@ def main():
     p.add_argument("--pmid", help="PubMed ID")
     p.add_argument("--collection", help="Collection ID to add to")
 
+    # fetch-pdf
+    p = subparsers.add_parser("fetch-pdf",
+        help="Download paper PDF, extract full text, store both to disk and TypeDB")
+    p.add_argument("--id", required=True,
+        help="scilit-paper TypeDB ID (e.g. scilit-paper-fd0a1617ef99)")
+    p.add_argument("--url",
+        help="Override PDF URL (default: derived from arXiv DOI)")
+    p.add_argument("--force", action="store_true",
+        help="Re-download even if artifact already exists")
+
     # show
     p = subparsers.add_parser("show", help="Show a paper for sensemaking")
     p.add_argument("--id", required=True, help="Paper ID (scilit-paper-...)")
@@ -1478,6 +1667,7 @@ def main():
         "search": cmd_search,
         "count": cmd_count,
         "ingest": cmd_ingest,
+        "fetch-pdf": cmd_fetch_pdf,
         "show": cmd_show,
         "list": cmd_list,
         "list-collections": cmd_list_collections,
