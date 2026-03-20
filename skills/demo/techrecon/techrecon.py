@@ -2056,7 +2056,7 @@ def cmd_add_fragment(args):
 def cmd_tag(args):
     """Tag an entity."""
     with get_driver() as driver:
-        apply_tags(driver, args.entity, "entity", [args.tag])
+        apply_tags(driver, args.entity, "identifiable-entity", [args.tag])
 
     print(json.dumps({"success": True, "entity": args.entity, "tag": args.tag}))
 
