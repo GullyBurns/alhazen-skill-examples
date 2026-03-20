@@ -76,3 +76,17 @@ export async function getDataModel(id: string) {
 export async function searchTag(tag: string) {
   return runTechrecon(['search-tag', '--tag', tag]);
 }
+
+export async function getBenchmarks(systemId: string) {
+  return runTechrecon(['show-benchmarks', '--system', systemId]);
+}
+
+export async function getSystemDecisions(systemId: string) {
+  return runTechrecon(['show-decisions', '--system', systemId]);
+}
+
+export async function listComparisons(investigationId?: string) {
+  const args = ['list-comparisons'];
+  if (investigationId) args.push('--investigation', investigationId);
+  return runTechrecon(args);
+}

@@ -1362,6 +1362,10 @@ def cmd_show_system(args):
                 "techrecon-license-type": $s.techrecon-license-type,
                 "techrecon-maturity": $s.techrecon-maturity,
                 "techrecon-package-name": $s.techrecon-package-name,
+                "techrecon-model-architecture": $s.techrecon-model-architecture,
+                "techrecon-training-methodology": $s.techrecon-training-methodology,
+                "techrecon-base-model": $s.techrecon-base-model,
+                "techrecon-parameter-count": $s.techrecon-parameter-count,
                 "created-at": $s.created-at
             }};'''
             sys_result = list(tx.query(sys_query).resolve())
@@ -1451,6 +1455,10 @@ def cmd_show_system(args):
             "license": get_attr(s, "techrecon-license-type"),
             "maturity": get_attr(s, "techrecon-maturity"),
             "package": get_attr(s, "techrecon-package-name"),
+            "model_architecture": get_attr(s, "techrecon-model-architecture"),
+            "training_methodology": get_attr(s, "techrecon-training-methodology"),
+            "base_model": get_attr(s, "techrecon-base-model"),
+            "parameter_count": get_attr(s, "techrecon-parameter-count"),
         },
         "components": [{
             "id": c.get("id"),

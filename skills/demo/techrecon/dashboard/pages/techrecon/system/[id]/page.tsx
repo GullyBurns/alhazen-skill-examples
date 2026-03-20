@@ -20,6 +20,9 @@ import {
   FileText,
   Database,
   Server,
+  Brain,
+  Cpu,
+  BarChart2,
 } from 'lucide-react';
 import { MaturityBadge, LanguageBadge, TypeBadge, FormatBadge } from '@/components/techrecon/badges';
 import { TagChips } from '@/components/techrecon/tag-chips';
@@ -35,6 +38,10 @@ export default function SystemPage({ params }: SystemPageProps) {
   const [data, setData] = useState<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [archData, setArchData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [benchmarks, setBenchmarks] = useState<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [decisions, setDecisions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,9 +50,11 @@ export default function SystemPage({ params }: SystemPageProps) {
       setLoading(true);
       setError(null);
       try {
-        const [sysRes, archRes] = await Promise.all([
+        const [sysRes, archRes, benchRes, decRes] = await Promise.all([
           fetch(`/api/techrecon/system/${id}`),
           fetch(`/api/techrecon/architecture/${id}`),
+          fetch(`/api/techrecon/benchmarks/${id}`),
+          fetch(`/api/techrecon/decisions/${id}`),
         ]);
         if (!sysRes.ok) throw new Error('Failed to fetch system');
         const sysJson = await sysRes.json();
@@ -53,6 +62,14 @@ export default function SystemPage({ params }: SystemPageProps) {
         if (archRes.ok) {
           const archJson = await archRes.json();
           setArchData(archJson);
+        }
+        if (benchRes.ok) {
+          const benchJson = await benchRes.json();
+          setBenchmarks(benchJson.benchmarks || []);
+        }
+        if (decRes.ok) {
+          const decJson = await decRes.json();
+          setDecisions(decJson.decisions || []);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -186,6 +203,28 @@ export default function SystemPage({ params }: SystemPageProps) {
               </CardContent>
             </Card>
           )}
+          {system.base_model && (
+            <Card>
+              <CardContent className="p-4 flex items-center gap-3">
+                <Brain className="w-5 h-5 text-purple-400" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Base Model</p>
+                  <p className="font-medium">{system.base_model}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {system.model_architecture && (
+            <Card>
+              <CardContent className="p-4 flex items-center gap-3">
+                <Cpu className="w-5 h-5 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Architecture</p>
+                  <p className="font-medium">{system.model_architecture}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Tags */}
@@ -222,6 +261,86 @@ export default function SystemPage({ params }: SystemPageProps) {
                     conceptLinks={conceptLinks}
                     componentDependencies={componentDependencies}
                   />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Benchmarks */}
+            {benchmarks.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart2 className="w-5 h-5" />
+                    Benchmarks
+                    <Badge variant="secondary" className="ml-auto">{benchmarks.length}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border/50">
+                          <th className="text-left py-2 font-medium text-muted-foreground">Benchmark</th>
+                          <th className="text-right py-2 font-medium text-muted-foreground">Value</th>
+                          <th className="text-left py-2 font-medium text-muted-foreground pl-2">Context</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {benchmarks.map((b: any, idx: number) => (
+                          <tr key={b.id || idx} className="border-b border-border/30 last:border-0">
+                            <td className="py-2">
+                              <span className="font-medium">{b.name}</span>
+                              {b.metric && b.metric !== b.name && (
+                                <span className="text-muted-foreground ml-1">({b.metric})</span>
+                              )}
+                            </td>
+                            <td className="py-2 text-right font-mono">
+                              {b.value}{b.unit && <span className="text-muted-foreground ml-0.5">{b.unit}</span>}
+                            </td>
+                            <td className="py-2 pl-2 text-muted-foreground text-xs">{b.context}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Design Decisions */}
+            {decisions.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <GitBranch className="w-5 h-5" />
+                    Design Decisions
+                    <Badge variant="secondary" className="ml-auto">{decisions.length}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  {decisions.map((d: any, idx: number) => (
+                    <div key={d.id || idx} className="p-3 rounded-lg bg-muted/50 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{d.name}</span>
+                        {d.status && (
+                          <Badge variant="outline" className="text-xs capitalize ml-auto">
+                            {d.status}
+                          </Badge>
+                        )}
+                      </div>
+                      {d.rationale && (
+                        <p className="text-xs text-muted-foreground"><strong>Rationale:</strong> {d.rationale}</p>
+                      )}
+                      {d['alternatives'] && (
+                        <p className="text-xs text-muted-foreground"><strong>Alternatives:</strong> {d['alternatives']}</p>
+                      )}
+                      {d['trade-off'] && (
+                        <p className="text-xs text-muted-foreground"><strong>Trade-off:</strong> {d['trade-off']}</p>
+                      )}
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
             )}
