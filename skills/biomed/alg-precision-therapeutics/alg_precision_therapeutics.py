@@ -61,7 +61,7 @@ Commands:
     search-tag              Search entities by tag
 
     # Scaffold
-    build-corpus            Print (or execute) epmc-search CLI commands
+    build-corpus            Print (or execute) scientific-literature CLI commands (360-view)
 
 Environment:
     TYPEDB_HOST       TypeDB server host (default: localhost)
@@ -2428,8 +2428,63 @@ def cmd_search_tag(args):
     print(json.dumps({"success": True, "count": len(results), "entities": results}, indent=2))
 
 
+def _fetch_disease_synonyms(mondo_id: str) -> list:
+    """Fetch useful synonyms from Monarch Initiative entity endpoint."""
+    try:
+        data = monarch_get(f"/entity/{mondo_id}")
+        exact = data.get("exact_synonym") or []
+        related = data.get("related_synonym") or []
+        all_syns = exact + related
+        short = [s for s in all_syns if s and len(s) < 40]
+        long_ = [s for s in all_syns if s and len(s) >= 40]
+        return (short + long_)[:4]
+    except Exception:
+        return []
+
+
+def _fetch_gene_aliases(gene_symbol: str) -> list:
+    """Fetch alias symbols from HGNC REST API."""
+    try:
+        import requests as _req
+        resp = _req.get(
+            f"https://rest.genenames.org/fetch/symbol/{gene_symbol}",
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        docs = resp.json().get("response", {}).get("docs", [])
+        if docs:
+            return docs[0].get("alias_symbol", []) + docs[0].get("prev_symbol", [])
+    except Exception:
+        pass
+    return []
+
+
+def _fetch_top_phenotypes(driver, disease_id: str) -> list:
+    """Return phenotype labels for obligate/very-frequent/frequent phenotypes."""
+    try:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            results = list(tx.query(f'''
+                match
+                    $d isa apt-disease, has id "{escape_string(disease_id)}";
+                    $p isa apt-phenotype, has apt-hpo-label $label;
+                    $rel (disease: $d, phenotype: $p) isa apt-disease-has-phenotype,
+                        has apt-frequency-qualifier $freq;
+                fetch {{ "label": $label, "freq": $freq }};
+            ''').resolve())
+        high_freq = {"obligate", "very frequent", "frequent",
+                     "HP:0040280", "HP:0040281", "HP:0040282"}
+        filtered = [r.get("label") for r in results
+                    if r.get("freq") in high_freq and r.get("label")]
+        if filtered:
+            return filtered
+        all_labels = [r.get("label") for r in results if r.get("label")]
+        return all_labels[:6]
+    except Exception:
+        return []
+
+
 def cmd_build_corpus(args):
-    """Print ready-to-run epmc-search CLI commands."""
+    """Print ready-to-run scientific-literature CLI commands (360-view strategy)."""
     mondo_id = args.mondo_id
     if not mondo_id.startswith("MONDO:"):
         mondo_id = f"MONDO:{mondo_id}"
@@ -2453,25 +2508,63 @@ def cmd_build_corpus(args):
             ''').resolve())
 
     gene_symbols = [g.get("symbol") for g in genes if g.get("symbol")]
-    commands = []
-    script = ".claude/skills/epmc-search/epmc_search.py"
 
-    # Disease-level searches
-    commands.append(f'uv run python {script} search --query "{disease_name}" --collection "{disease_name} literature" --max-results 50')
-    commands.append(f'uv run python {script} search --query "{disease_name} mechanism" --collection "{disease_name} mechanism" --max-results 30')
-    commands.append(f'uv run python {script} search --query "{disease_name} therapy treatment" --collection "{disease_name} therapy" --max-results 30')
+    import shlex as _shlex
 
-    # Gene-level searches
+    script = ".claude/skills/scientific-literature/scientific_literature.py"
+    # Each entry: (query_string, collection_name, max_results)
+    # query_string is the raw value passed to --query (may contain EPMC phrase quotes)
+    query_specs = []
+
+    # --- Tier 1: Disease identity ---
+    dn = disease_name[:80]
+    query_specs.append((f'"{disease_name}"', f"{dn} general", 50))
+    synonyms = _fetch_disease_synonyms(mondo_id)
+    for syn in synonyms[:3]:
+        safe = syn.replace('"', '').replace("\\", "")
+        query_specs.append((f'"{safe}"', f"{safe[:40]}", 30))
+
+    # --- Tier 2: Gene + gene aliases ---
     for sym in gene_symbols[:5]:
-        commands.append(f'uv run python {script} search --query "{sym} {disease_name}" --collection "{sym} disease" --max-results 20')
+        query_specs.append((f'{sym} "{disease_name}"', f"{sym} disease", 30))
+        aliases = _fetch_gene_aliases(sym)
+        for alias in aliases[:2]:
+            query_specs.append((f'"{alias}" disease mechanism', f"{alias} mechanism", 20))
+
+    # --- Tier 3: Molecular function (generic) ---
+    for sym in gene_symbols[:3]:
+        query_specs.append((f'{sym} mechanism pathway biology', f"{sym} mechanism", 25))
+        query_specs.append((f'{sym} mutation variant pathogenic', f"{sym} variants", 25))
+
+    # --- Tier 4: Phenotype-driven (from TypeDB) ---
+    with get_driver() as driver:
+        top_phenotypes = _fetch_top_phenotypes(driver, disease_id)[:5]
+    for phenotype in top_phenotypes:
+        for sym in gene_symbols[:2]:
+            safe_phen = phenotype.replace('"', '').replace("\\", "")
+            query_specs.append((f'{sym} "{safe_phen}"', f"{sym} {safe_phen[:20]}", 15))
+
+    # --- Tier 5: Therapeutic ---
+    query_specs.append((f'"{disease_name}" treatment therapy', f"{dn[:30]} therapy", 30))
+    for sym in gene_symbols[:3]:
+        query_specs.append((f'{sym} inhibitor therapeutic drug repurposing', f"{sym} therapeutics", 20))
+
+    # Build as arg lists (avoids shlex double-quote issues with phrase-search queries)
+    # Display strings are shell-quoted for copy-paste
+    arg_lists = [
+        ["uv", "run", "python", script, "search", "--source", "epmc",
+         "--query", q, "--collection", col, "--max-results", str(n)]
+        for q, col, n in query_specs
+    ]
+    commands = [" ".join(_shlex.quote(a) for a in al) for al in arg_lists]
 
     if getattr(args, "execute", False):
         import subprocess
         results_by_cmd = []
-        for cmd_str in commands:
+        for cmd_str, arg_list in zip(commands, arg_lists):
             try:
                 result = subprocess.run(
-                    cmd_str.split(),
+                    arg_list,
                     capture_output=True,
                     text=True,
                     timeout=120,
@@ -2694,7 +2787,7 @@ def build_parser():
     p.add_argument("--tag", required=True, help="Tag to search for")
 
     # build-corpus
-    p = sub.add_parser("build-corpus", help="Print or execute epmc-search CLI commands")
+    p = sub.add_parser("build-corpus", help="Print or execute scientific-literature CLI commands (360-view)")
     p.add_argument("--mondo-id", dest="mondo_id", required=True, help="MONDO ID")
     p.add_argument("--execute", action="store_true", help="Execute commands (not just print)")
     p.add_argument("--link-to-investigation", dest="link_to_investigation", default="",
