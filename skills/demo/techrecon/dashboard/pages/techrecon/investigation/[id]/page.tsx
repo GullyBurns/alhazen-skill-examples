@@ -3,16 +3,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SystemsGrid } from '@/components/techrecon/systems-grid';
-import { NotesList } from '@/components/techrecon/notes-list';
 import {
   InvestigationStatusBadge,
   CategoryBadge,
   FormatBadge,
   TypeBadge,
+  GranularityBadge,
 } from '@/components/techrecon/badges';
 import {
   ArrowLeft,
@@ -24,6 +26,8 @@ import {
   Lightbulb,
   Database,
   Puzzle,
+  ChevronRight,
+  GitBranch,
 } from 'lucide-react';
 
 interface Investigation {
@@ -94,6 +98,81 @@ interface Summary {
   data_models_count: number;
 }
 
+interface Workflow {
+  id: string;
+  name: string;
+  granularity?: string;
+  system_id?: string;
+}
+
+function extractNoteTitle(note: Note): string {
+  const match = note.content?.match(/^##\s+(.+)$/m);
+  if (match) return match[1].trim();
+  if (note.name) return note.name;
+  return note.type ? note.type.replace(/-/g, ' ') : 'Note';
+}
+
+function CollapsibleNote({ note }: { note: Note }) {
+  const [open, setOpen] = useState(false);
+  const title = extractNoteTitle(note);
+
+  return (
+    <div className="border border-border/50 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-accent/30 transition-colors"
+      >
+        <ChevronRight
+          className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+        />
+        {note.type && (
+          <Badge variant="outline" className="text-xs shrink-0">
+            {note.type.replace(/-/g, ' ')}
+          </Badge>
+        )}
+        <span className="text-sm font-medium truncate">{title}</span>
+      </button>
+      {open && (
+        <div className="px-4 py-3 border-t border-border/50 bg-card/50">
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.content}</ReactMarkdown>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CollapsibleNotesList({ notes }: { notes: Note[] }) {
+  // Group notes by type
+  const groups = notes.reduce<Record<string, Note[]>>((acc, note) => {
+    const key = note.type || 'general';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(note);
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-4">
+      {Object.entries(groups).map(([type, groupNotes]) => (
+        <div key={type}>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+            {type.replace(/-/g, ' ')} Notes ({groupNotes.length})
+          </p>
+          <div className="space-y-1">
+            {groupNotes.map((note) => (
+              <CollapsibleNote key={note.id} note={note} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const linkClass =
+  'text-cyan-400 font-semibold underline underline-offset-2 hover:text-blue-400 transition-colors';
+
 export default function InvestigationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [investigation, setInvestigation] = useState<Investigation | null>(null);
@@ -104,6 +183,7 @@ export default function InvestigationDetailPage() {
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [dataModels, setDataModels] = useState<DataModel[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -142,6 +222,17 @@ export default function InvestigationDetailPage() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (systems.length === 0) return;
+    Promise.all(
+      systems.map((s) =>
+        fetch(`/api/techrecon/workflows?system=${s.id}`)
+          .then((r) => r.json())
+          .then((d) => (d.workflows || []) as Workflow[])
+      )
+    ).then((nested) => setWorkflows(nested.flat()));
+  }, [systems]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -155,10 +246,7 @@ export default function InvestigationDetailPage() {
       <div className="min-h-screen">
         <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
           <div className="container mx-auto px-4 py-4">
-            <Link
-              href="/techrecon"
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
-            >
+            <Link href="/techrecon" className={`flex items-center gap-2 text-sm ${linkClass}`}>
               <ArrowLeft className="w-4 h-4" />
               Back to TechRecon
             </Link>
@@ -178,10 +266,7 @@ export default function InvestigationDetailPage() {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
-              <Link
-                href="/techrecon"
-                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
-              >
+              <Link href="/techrecon" className={`flex items-center gap-2 text-sm ${linkClass}`}>
                 <ArrowLeft className="w-4 h-4" />
                 TechRecon
               </Link>
@@ -276,6 +361,26 @@ export default function InvestigationDetailPage() {
               <SystemsGrid systems={systems} />
             </section>
 
+            {/* Workflows */}
+            {workflows.length > 0 && (
+              <section>
+                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                  <GitBranch className="w-4 h-4" />
+                  Workflows
+                </h2>
+                <div className="space-y-1">
+                  {workflows.map((w) => (
+                    <div key={w.id} className="flex items-center gap-2 py-1">
+                      <Link href={`/techrecon/workflow/${w.id}`} className={`text-sm ${linkClass}`}>
+                        {w.name}
+                      </Link>
+                      {w.granularity && <GranularityBadge granularity={w.granularity} />}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* Notes */}
             {notes.length > 0 && (
               <section>
@@ -283,7 +388,7 @@ export default function InvestigationDetailPage() {
                   <StickyNote className="w-4 h-4" />
                   Notes
                 </h2>
-                <NotesList notes={notes} grouped={true} />
+                <CollapsibleNotesList notes={notes} />
               </section>
             )}
           </div>
@@ -307,7 +412,7 @@ export default function InvestigationDetailPage() {
                     <Link
                       key={a.id}
                       href={`/techrecon/artifact/${a.id}`}
-                      className="flex items-center gap-2 text-sm hover:text-primary transition-colors py-1"
+                      className={`flex items-center gap-2 text-sm py-1 ${linkClass}`}
                     >
                       <span className="truncate">{a.name}</span>
                       {a.mime_type && (
@@ -336,7 +441,7 @@ export default function InvestigationDetailPage() {
                     <Link
                       key={c.id}
                       href={`/techrecon/component/${c.id}`}
-                      className="flex items-center gap-2 text-sm hover:text-primary transition-colors py-1"
+                      className={`flex items-center gap-2 text-sm py-1 ${linkClass}`}
                     >
                       <span className="truncate">{c.name}</span>
                       {c.type && (
@@ -367,7 +472,7 @@ export default function InvestigationDetailPage() {
                     <Link
                       key={c.id}
                       href={`/techrecon/concept/${c.id}`}
-                      className="flex items-center gap-2 text-sm hover:text-primary transition-colors py-1"
+                      className={`flex items-center gap-2 text-sm py-1 ${linkClass}`}
                     >
                       <span className="truncate">{c.name}</span>
                       {c.category && <CategoryBadge category={c.category} />}
@@ -391,10 +496,7 @@ export default function InvestigationDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {dataModels.map((dm) => (
-                    <div
-                      key={dm.id}
-                      className="flex items-center gap-2 text-sm py-1"
-                    >
+                    <div key={dm.id} className="flex items-center gap-2 text-sm py-1">
                       <span className="truncate">{dm.name}</span>
                       {dm.format && <FormatBadge format={dm.format} />}
                     </div>
