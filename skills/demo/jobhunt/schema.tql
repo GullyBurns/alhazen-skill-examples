@@ -279,6 +279,17 @@ entity jobhunt-interaction-note sub note,
 # Allow paper collections to address skill requirements (bridges scilit <-> jobhunt)
 collection plays addresses-requirement:resource;
 
+# BACKGROUND-READING - Links paper collections to job opportunities as research context
+relation jobhunt-background-reading,
+    owns created-at,
+    owns description,
+    owns provenance,
+    relates opportunity,
+    relates reading-material;
+
+jobhunt-opportunity plays jobhunt-background-reading:opportunity;
+collection plays jobhunt-background-reading:reading-material;
+
 
 # =============================================================================
 # END JOB HUNTING NAMESPACE

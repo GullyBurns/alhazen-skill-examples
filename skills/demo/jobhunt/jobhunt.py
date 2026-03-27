@@ -28,6 +28,8 @@ Commands:
     add-requirement     Add a requirement to a position
     link-resource       Link resource to a skill requirement
     link-collection     Link paper collection to skill requirement(s)
+    link-background     Link paper collection to opportunity as background reading
+    list-background     List paper collections linked to an opportunity
     link-paper          Link learning resource to a paper
 
     # Queries
@@ -869,6 +871,76 @@ def cmd_link_collection(args):
                 "success": False,
                 "error": "Must specify either --requirement or --skill",
             }))
+
+
+def cmd_link_background(args):
+    """Link a paper collection to a job opportunity as background reading."""
+    collection_id = args.collection
+    opportunity_id = args.opportunity
+    description = getattr(args, "description", "") or ""
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            cols = list(tx.query(f'''
+                match $c isa collection, has id "{collection_id}";
+                fetch {{ "id": $c.id, "name": $c.name }};
+            ''').resolve())
+            if not cols:
+                print(json.dumps({"success": False, "error": f"Collection '{collection_id}' not found"}))
+                return
+
+            opps = list(tx.query(f'''
+                match $o isa jobhunt-opportunity, has id "{opportunity_id}";
+                fetch {{ "id": $o.id, "name": $o.name }};
+            ''').resolve())
+            if not opps:
+                print(json.dumps({"success": False, "error": f"Opportunity '{opportunity_id}' not found"}))
+                return
+
+        ts = get_timestamp()
+        desc_clause = f', has description "{escape_string(description)}"' if description else ""
+        prov_clause = ', has provenance "link-background"'
+
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''
+                match $o isa jobhunt-opportunity, has id "{opportunity_id}";
+                      $c isa collection, has id "{collection_id}";
+                insert (opportunity: $o, reading-material: $c) isa jobhunt-background-reading,
+                    has created-at {ts}{desc_clause}{prov_clause};
+            ''').resolve()
+            tx.commit()
+
+    print(json.dumps({
+        "success": True,
+        "opportunity_id": opportunity_id,
+        "collection_id": collection_id,
+        "description": description,
+        "message": f"Linked collection '{cols[0]['name']}' to opportunity '{opps[0]['name']}' as background reading",
+    }))
+
+
+def cmd_list_background(args):
+    """List paper collections linked to a job opportunity as background reading."""
+    opportunity_id = args.opportunity
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            results = list(tx.query(f'''
+                match $o isa jobhunt-opportunity, has id "{opportunity_id}";
+                      $c isa collection;
+                      (opportunity: $o, reading-material: $c) isa jobhunt-background-reading;
+                fetch {{
+                    "collection-id": $c.id,
+                    "collection-name": $c.name
+                }};
+            ''').resolve())
+
+    print(json.dumps({
+        "success": True,
+        "opportunity_id": opportunity_id,
+        "collections": results,
+        "count": len(results),
+    }))
 
 
 def cmd_link_paper(args):
@@ -2539,6 +2611,16 @@ def main():
     p.add_argument("--requirement", help="Specific requirement ID")
     p.add_argument("--skill", help="Skill name (links to all matching requirements)")
 
+    # link-background
+    p = subparsers.add_parser("link-background", help="Link paper collection to opportunity as background reading")
+    p.add_argument("--opportunity", required=True, help="Opportunity ID (position, engagement, venture, lead)")
+    p.add_argument("--collection", required=True, help="Collection ID (scilit-corpus, trend-thread, etc.)")
+    p.add_argument("--description", help="Why this collection is relevant to the opportunity")
+
+    # list-background
+    p = subparsers.add_parser("list-background", help="List paper collections linked to an opportunity")
+    p.add_argument("--opportunity", required=True, help="Opportunity ID")
+
     # link-paper
     p = subparsers.add_parser("link-paper", help="Link learning resource to a paper via citation-reference")
     p.add_argument("--resource", required=True, help="Learning resource ID")
@@ -2708,6 +2790,8 @@ def main():
         "add-resource": cmd_add_resource,
         "link-resource": cmd_link_resource,
         "link-collection": cmd_link_collection,
+        "link-background": cmd_link_background,
+        "list-background": cmd_list_background,
         "link-paper": cmd_link_paper,
         "add-requirement": cmd_add_requirement,
         # Delete
