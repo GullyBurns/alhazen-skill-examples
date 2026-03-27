@@ -1233,13 +1233,13 @@ def cmd_show_opportunity(args):
                 fetch {{ "collection-id": $c.id, "collection-name": $c.name }};
             ''').resolve())
 
-            # FEX1 workaround: bind relation attribute in match clause
+            # Fetch descriptions — anon relation + has avoids $var naming issues
             bg_descs = {r["collection-id"]: r["description"]
                         for r in tx.query(f'''
                 match $o isa jobhunt-opportunity, has id "{args.id}";
                       $c isa collection, has id $cid;
-                      $br (opportunity: $o, reading-material: $c) isa jobhunt-background-reading;
-                      $br has description $desc;
+                      (opportunity: $o, reading-material: $c) isa jobhunt-background-reading,
+                          has description $desc;
                 fetch {{ "collection-id": $cid, "description": $desc }};
             ''').resolve()}
 
@@ -1503,13 +1503,13 @@ def cmd_show_position(args):
                 fetch {{ "collection-id": $c.id, "collection-name": $c.name }};
             ''').resolve())
 
-            # FEX1 workaround: bind relation attribute in match clause
+            # Fetch descriptions — anon relation + has avoids $var naming issues
             bg_descs = {r["collection-id"]: r["description"]
                         for r in tx.query(f'''
                 match $p isa jobhunt-position, has id "{args.id}";
                       $c isa collection, has id $cid;
-                      $br (opportunity: $p, reading-material: $c) isa jobhunt-background-reading;
-                      $br has description $desc;
+                      (opportunity: $p, reading-material: $c) isa jobhunt-background-reading,
+                          has description $desc;
                 fetch {{ "collection-id": $cid, "description": $desc }};
             ''').resolve()}
 
