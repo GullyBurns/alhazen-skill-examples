@@ -49,11 +49,13 @@ Commands:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 try:
     import requests
@@ -67,6 +69,69 @@ try:
     TYPEDB_AVAILABLE = True
 except ImportError:
     TYPEDB_AVAILABLE = False
+
+# ---------------------------------------------------------------------------
+# Cache utilities (inlined — no external package needed)
+# ---------------------------------------------------------------------------
+
+_CACHE_THRESHOLD = 50 * 1024  # 50KB
+
+_MIME_TYPE_MAP = {
+    "text/html": ("html", "html"),
+    "application/xhtml+xml": ("html", "html"),
+    "application/pdf": ("pdf", "pdf"),
+    "image/png": ("image", "png"),
+    "image/jpeg": ("image", "jpg"),
+    "image/gif": ("image", "gif"),
+    "image/webp": ("image", "webp"),
+    "image/svg+xml": ("image", "svg"),
+    "application/json": ("json", "json"),
+    "text/plain": ("text", "txt"),
+    "text/markdown": ("text", "md"),
+    "text/csv": ("text", "csv"),
+    "application/xml": ("text", "xml"),
+    "text/xml": ("text", "xml"),
+}
+
+
+def get_cache_dir():
+    cache_env = os.getenv("ALHAZEN_CACHE_DIR")
+    cache_dir = Path(cache_env).expanduser() if cache_env else Path.home() / ".alhazen" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def should_cache(content):
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    return len(content) >= _CACHE_THRESHOLD
+
+
+def save_to_cache(artifact_id, content, mime_type):
+    if isinstance(content, str):
+        content_bytes = content.encode("utf-8")
+    else:
+        content_bytes = content
+    type_dir, ext = _MIME_TYPE_MAP.get(mime_type, ("other", "bin"))
+    cache_dir = get_cache_dir()
+    type_path = cache_dir / type_dir
+    type_path.mkdir(parents=True, exist_ok=True)
+    filename = f"{artifact_id}.{ext}"
+    full_path = type_path / filename
+    full_path.write_bytes(content_bytes)
+    return {
+        "cache_path": f"{type_dir}/{filename}",
+        "file_size": len(content_bytes),
+        "content_hash": hashlib.sha256(content_bytes).hexdigest(),
+        "full_path": str(full_path),
+    }
+
+
+def load_from_cache_text(cache_path, encoding="utf-8"):
+    return (get_cache_dir() / cache_path).read_bytes().decode(encoding)
+
+
+CACHE_AVAILABLE = True
 
 # ---------------------------------------------------------------------------
 # Config
@@ -366,7 +431,6 @@ def cmd_ingest_youtube(args):
     )
 
     # Create tsw-transcript artifact
-    from skillful_alhazen.utils.cache import save_to_cache, should_cache  # noqa: PLC0415
     artifact_id = generate_id("tsw-transcript")
     if should_cache(transcript_text):
         cache_result = save_to_cache(artifact_id, transcript_text, "text/plain")
@@ -434,7 +498,6 @@ def cmd_ingest_article(args):
         f' has created-at {ts};'
     )
 
-    from skillful_alhazen.utils.cache import save_to_cache, should_cache  # noqa: PLC0415
     artifact_id = generate_id("tsw-article")
     if should_cache(text):
         cache_result = save_to_cache(artifact_id, text, "text/plain")
@@ -505,8 +568,6 @@ fetch {
 
 
 def cmd_show_statement(args):
-    from skillful_alhazen.utils.cache import load_from_cache_text  # noqa: PLC0415
-
     q = f"""match $s isa tsw-statement, has id "{args.id}";
 fetch {{
     "id": $s.id,

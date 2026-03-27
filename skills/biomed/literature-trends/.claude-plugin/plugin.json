@@ -1,0 +1,14 @@
+{
+  "name": "literature-trends",
+  "display_name": "Literature Trends",
+  "description": "Abductive argumentation-based trend analysis — trace hypothesis evolution across time windows in keyword-tagged paper clusters.",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "requires": {
+    "plugins": ["alhazen-core", "scientific-literature"],
+    "system": {
+      "bins": ["uv", "docker"],
+      "description": "Run /alhazen-core:init first. Requires scientific-literature for paper ingestion."
+    }
+  }
+}

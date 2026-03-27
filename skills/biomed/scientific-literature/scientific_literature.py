@@ -27,6 +27,7 @@ Environment:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -36,9 +37,6 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from time import sleep
-
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
 
 try:
     from dotenv import load_dotenv
@@ -81,11 +79,68 @@ try:
 except ImportError:
     PDFPLUMBER_AVAILABLE = False
 
-try:
-    from skillful_alhazen.utils.cache import save_to_cache, load_from_cache_text
-    CACHE_AVAILABLE = True
-except ImportError:
-    CACHE_AVAILABLE = False
+# ---------------------------------------------------------------------------
+# Cache utilities (inlined — no external package needed)
+# ---------------------------------------------------------------------------
+
+_CACHE_THRESHOLD = 50 * 1024  # 50KB
+
+_MIME_TYPE_MAP = {
+    "text/html": ("html", "html"),
+    "application/xhtml+xml": ("html", "html"),
+    "application/pdf": ("pdf", "pdf"),
+    "image/png": ("image", "png"),
+    "image/jpeg": ("image", "jpg"),
+    "image/gif": ("image", "gif"),
+    "image/webp": ("image", "webp"),
+    "image/svg+xml": ("image", "svg"),
+    "application/json": ("json", "json"),
+    "text/plain": ("text", "txt"),
+    "text/markdown": ("text", "md"),
+    "text/csv": ("text", "csv"),
+    "application/xml": ("text", "xml"),
+    "text/xml": ("text", "xml"),
+}
+
+
+def _get_cache_dir():
+    cache_env = os.getenv("ALHAZEN_CACHE_DIR")
+    cache_dir = Path(cache_env).expanduser() if cache_env else Path.home() / ".alhazen" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def should_cache(content):
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    return len(content) >= _CACHE_THRESHOLD
+
+
+def save_to_cache(artifact_id, content, mime_type):
+    if isinstance(content, str):
+        content_bytes = content.encode("utf-8")
+    else:
+        content_bytes = content
+    type_dir, ext = _MIME_TYPE_MAP.get(mime_type, ("other", "bin"))
+    cache_dir = _get_cache_dir()
+    type_path = cache_dir / type_dir
+    type_path.mkdir(parents=True, exist_ok=True)
+    filename = f"{artifact_id}.{ext}"
+    full_path = type_path / filename
+    full_path.write_bytes(content_bytes)
+    return {
+        "cache_path": f"{type_dir}/{filename}",
+        "file_size": len(content_bytes),
+        "content_hash": hashlib.sha256(content_bytes).hexdigest(),
+        "full_path": str(full_path),
+    }
+
+
+def load_from_cache_text(cache_path, encoding="utf-8"):
+    return (_get_cache_dir() / cache_path).read_bytes().decode(encoding)
+
+
+CACHE_AVAILABLE = True
 
 try:
     from tqdm import tqdm

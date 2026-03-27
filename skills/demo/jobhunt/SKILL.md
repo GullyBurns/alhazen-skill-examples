@@ -11,8 +11,12 @@ Use this skill to manage your job search as a knowledge graph. Claude acts as yo
 
 ## Prerequisites
 
-- TypeDB must be running: `make db-start`
-- Dependencies installed: `uv sync --all-extras` (from project root)
+- TypeDB must be running (install `alhazen-core` first and run `/alhazen-core:init`)
+- `uv` must be installed
+
+> **Path note:** Replace `<skill-path>` below with your installation directory
+> (e.g. `~/.claude/plugins/cache/jobhunt/` when installed as a plugin,
+> or `.claude/skills/jobhunt/` in the skillful-alhazen project).
 
 ## Environment Variables
 
@@ -24,12 +28,12 @@ Use this skill to manage your job search as a knowledge graph. Claude acts as yo
 
 ```bash
 # Ingest a job posting
-uv run python .claude/skills/jobhunt/jobhunt.py ingest-job \
+uv run --project <skill-path> python <skill-path>/jobhunt.py ingest-job \
     --url "https://boards.greenhouse.io/anthropic/jobs/123456" \
     --priority high
 
 # List your pipeline
-uv run python .claude/skills/jobhunt/jobhunt.py list-pipeline
+uv run --project <skill-path> python <skill-path>/jobhunt.py list-pipeline
 ```
 
 **Before executing any commands, read `USAGE.md` in this directory for the complete command reference, sensemaking workflow, data model, and automated foraging guide.**

@@ -1,0 +1,15 @@
+{
+  "name": "alg-precision-therapeutics",
+  "display_name": "Algorithm for Precision Therapeutics",
+  "description": "Rare disease mechanism investigation from MONDO diagnoses using Monarch Initiative, ChEMBL, and ClinicalTrials.gov.",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "requires": {
+    "plugins": ["alhazen-core"],
+    "system": {
+      "bins": ["uv", "docker"],
+      "description": "Run /alhazen-core:init first to set up TypeDB and base schema"
+    },
+    "optional_env": ["OMIM_API_KEY"]
+  }
+}

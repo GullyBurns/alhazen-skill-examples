@@ -23,28 +23,31 @@ from symptoms - use clinical tools for those.
 
 ## Prerequisites
 
-- TypeDB running: `make db-start`
-- Dependencies: `uv sync --all-extras`
+- TypeDB running (install `alhazen-core` first and run `/alhazen-core:init`)
+- `uv` installed
+
+> **Path note:** Replace `<skill-path>` with your installation directory
+> (e.g. `~/.claude/plugins/cache/alg-precision-therapeutics/` when installed as a plugin).
 
 ## Quick Start
 
 ```bash
-SCRIPT=".claude/skills/alg-precision-therapeutics/alg_precision_therapeutics.py"
+SCRIPT="<skill-path>/alg_precision_therapeutics.py"
 
 # 1. Search for MONDO ID
-uv run python $SCRIPT search-disease --query "NGLY1 deficiency"
+uv run --project <skill-path> python $SCRIPT search-disease --query "NGLY1 deficiency"
 
 # 2. Initialize investigation
-uv run python $SCRIPT init-investigation MONDO:0800044
+uv run --project <skill-path> python $SCRIPT init-investigation MONDO:0800044
 
 # 3. Ingest all external data
-uv run python $SCRIPT ingest-disease --mondo-id MONDO:0800044
+uv run --project <skill-path> python $SCRIPT ingest-disease --mondo-id MONDO:0800044
 
 # 4. View mechanism map (after Claude adds mechanisms)
-uv run python $SCRIPT show-mechanisms --mondo-id MONDO:0800044
+uv run --project <skill-path> python $SCRIPT show-mechanisms --mondo-id MONDO:0800044
 
 # 5. View therapeutic map
-uv run python $SCRIPT show-therapeutic-map --mondo-id MONDO:0800044
+uv run --project <skill-path> python $SCRIPT show-therapeutic-map --mondo-id MONDO:0800044
 ```
 
 Read `USAGE.md` before executing commands.

@@ -1,0 +1,15 @@
+name: alhazen-core
+description: "REQUIRED FIRST: Sets up TypeDB and loads the Alhazen base schema. Install before any other Alhazen skill."
+license: Apache-2.0
+compatibility: "TypeDB 3.x, Python 3.11+"
+
+script: alhazen_core.py
+schema: alhazen_notebook.tql
+
+requires:
+  bins: [uv, docker]
+
+operations:
+  - init
+  - status
+  - reset

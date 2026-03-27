@@ -1,0 +1,37 @@
+{
+  "name": "alhazen-skills",
+  "description": "Knowledge graph skills for the Alhazen scientific notebook framework (TypeDB-powered)",
+  "homepage": "https://github.com/sciknow-io/alhazen-skill-examples",
+  "plugins": [
+    {
+      "name": "alhazen-core",
+      "source": "skills/core/alhazen-core",
+      "description": "REQUIRED FIRST: Sets up TypeDB and loads the Alhazen base schema. Install this before any other Alhazen skill."
+    },
+    {
+      "name": "jobhunt",
+      "source": "skills/demo/jobhunt",
+      "description": "Job hunting notebook — track applications, skill gaps, and learning plans"
+    },
+    {
+      "name": "they-said-whaaa",
+      "source": "skills/journalism/they-said-whaaa",
+      "description": "Credibility and consistency tracker — ingest YouTube transcripts and news, detect contradictions"
+    },
+    {
+      "name": "scientific-literature",
+      "source": "skills/biomed/scientific-literature",
+      "description": "Multi-source scientific literature search and ingestion (EPMC, PubMed, OpenAlex, bioRxiv)"
+    },
+    {
+      "name": "alg-precision-therapeutics",
+      "source": "skills/biomed/alg-precision-therapeutics",
+      "description": "Rare disease mechanism investigation from MONDO diagnoses using Monarch Initiative"
+    },
+    {
+      "name": "literature-trends",
+      "source": "skills/biomed/literature-trends",
+      "description": "Abductive argumentation-based literature trend analysis across tagged literature threads"
+    }
+  ]
+}

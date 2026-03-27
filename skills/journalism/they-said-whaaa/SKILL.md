@@ -10,20 +10,22 @@ Use this skill to track public statements by politicians and other public figure
 **When to use:** "track what [figure] said about", "ingest YouTube video", "ingest news article", "extract claims from", "find contradictions", "build timeline", "compare figures on topic", "add politician", "add topic"
 
 ## Prerequisites
-- TypeDB running: `make db-start`
-- Schema loaded: `make build-db`
-- Dependencies: `uv sync --all-extras`
-- YouTube transcripts: `uv sync --extra they-said-whaaa` (installs `youtube-transcript-api`)
+- TypeDB running (install `alhazen-core` first and run `/alhazen-core:init`)
+- `uv` installed
+- YouTube transcripts: `uv add youtube-transcript-api` (optional)
+
+> **Path note:** Replace `<skill-path>` below with your installation directory
+> (e.g. `~/.claude/plugins/cache/they-said-whaaa/` when installed as a plugin).
 
 ## Quick Start
 ```bash
-uv run python .claude/skills/they-said-whaaa/they_said_whaaa.py add-figure \
+uv run --project <skill-path> python <skill-path>/they_said_whaaa.py add-figure \
     --name "Jane Senator" --role senator --party Democrat --country US
 
-uv run python .claude/skills/they-said-whaaa/they_said_whaaa.py ingest-article \
+uv run --project <skill-path> python <skill-path>/they_said_whaaa.py ingest-article \
     --url "https://example.com/article" --figure-id tsw-figure-...
 
-uv run python .claude/skills/they-said-whaaa/they_said_whaaa.py list-figures
+uv run --project <skill-path> python <skill-path>/they_said_whaaa.py list-figures
 ```
 
 ## Sensemaking Pattern

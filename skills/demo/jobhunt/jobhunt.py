@@ -67,11 +67,13 @@ Environment:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlparse
 
 try:
@@ -97,29 +99,95 @@ except ImportError:
         file=sys.stderr,
     )
 
-# Cache utilities
-try:
-    from skillful_alhazen.utils.cache import (
-        get_cache_dir,
-        save_to_cache,
-        load_from_cache_text,
-        should_cache,
-        get_cache_stats,
-        format_size,
-    )
+# ---------------------------------------------------------------------------
+# Cache utilities (inlined — no external package needed)
+# ---------------------------------------------------------------------------
 
-    CACHE_AVAILABLE = True
-except ImportError:
-    CACHE_AVAILABLE = False
-    # Fallback: define minimal versions if cache module not available
-    def should_cache(content):
-        return False
+_CACHE_THRESHOLD = 50 * 1024  # 50KB
 
-    def get_cache_stats():
-        return {"error": "Cache module not available"}
+_MIME_TYPE_MAP = {
+    "text/html": ("html", "html"),
+    "application/xhtml+xml": ("html", "html"),
+    "application/pdf": ("pdf", "pdf"),
+    "image/png": ("image", "png"),
+    "image/jpeg": ("image", "jpg"),
+    "image/gif": ("image", "gif"),
+    "image/webp": ("image", "webp"),
+    "image/svg+xml": ("image", "svg"),
+    "application/json": ("json", "json"),
+    "text/plain": ("text", "txt"),
+    "text/markdown": ("text", "md"),
+    "text/csv": ("text", "csv"),
+    "application/xml": ("text", "xml"),
+    "text/xml": ("text", "xml"),
+}
 
-    def format_size(size):
-        return f"{size} bytes"
+
+def get_cache_dir():
+    cache_env = os.getenv("ALHAZEN_CACHE_DIR")
+    cache_dir = Path(cache_env).expanduser() if cache_env else Path.home() / ".alhazen" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def should_cache(content):
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    return len(content) >= _CACHE_THRESHOLD
+
+
+def save_to_cache(artifact_id, content, mime_type):
+    if isinstance(content, str):
+        content_bytes = content.encode("utf-8")
+    else:
+        content_bytes = content
+    type_dir, ext = _MIME_TYPE_MAP.get(mime_type, ("other", "bin"))
+    cache_dir = get_cache_dir()
+    type_path = cache_dir / type_dir
+    type_path.mkdir(parents=True, exist_ok=True)
+    filename = f"{artifact_id}.{ext}"
+    full_path = type_path / filename
+    full_path.write_bytes(content_bytes)
+    return {
+        "cache_path": f"{type_dir}/{filename}",
+        "file_size": len(content_bytes),
+        "content_hash": hashlib.sha256(content_bytes).hexdigest(),
+        "full_path": str(full_path),
+    }
+
+
+def load_from_cache_text(cache_path, encoding="utf-8"):
+    return (get_cache_dir() / cache_path).read_bytes().decode(encoding)
+
+
+def get_cache_stats():
+    cache_dir = get_cache_dir()
+    stats = {"cache_dir": str(cache_dir), "total_files": 0, "total_size": 0, "by_type": {}}
+    if not cache_dir.exists():
+        return stats
+    for type_dir in cache_dir.iterdir():
+        if type_dir.is_dir():
+            type_stats = {"count": 0, "size": 0}
+            for f in type_dir.iterdir():
+                if f.is_file():
+                    type_stats["count"] += 1
+                    type_stats["size"] += f.stat().st_size
+            if type_stats["count"] > 0:
+                stats["by_type"][type_dir.name] = type_stats
+                stats["total_files"] += type_stats["count"]
+                stats["total_size"] += type_stats["size"]
+    return stats
+
+
+def format_size(size_bytes):
+    for unit in ["B", "KB", "MB", "GB"]:
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
+CACHE_AVAILABLE = True
 
 
 # Configuration

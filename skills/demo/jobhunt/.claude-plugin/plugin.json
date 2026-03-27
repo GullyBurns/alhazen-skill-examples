@@ -1,0 +1,14 @@
+{
+  "name": "jobhunt",
+  "display_name": "Job Hunting Notebook",
+  "description": "Track job applications, analyze positions, identify skill gaps, and plan your job search strategy.",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "requires": {
+    "plugins": ["alhazen-core"],
+    "system": {
+      "bins": ["uv", "docker"],
+      "description": "Run /alhazen-core:init first to set up TypeDB and base schema"
+    }
+  }
+}

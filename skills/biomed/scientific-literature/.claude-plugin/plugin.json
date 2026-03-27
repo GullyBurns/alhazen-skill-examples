@@ -1,0 +1,15 @@
+{
+  "name": "scientific-literature",
+  "display_name": "Scientific Literature",
+  "description": "Multi-source scientific literature search and ingestion: Europe PMC, PubMed, OpenAlex, bioRxiv/medRxiv, with optional semantic search via Voyage AI + Qdrant.",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "requires": {
+    "plugins": ["alhazen-core"],
+    "system": {
+      "bins": ["uv", "docker"],
+      "description": "Run /alhazen-core:init first. For semantic search, set VOYAGE_API_KEY and start Qdrant."
+    },
+    "optional_env": ["VOYAGE_API_KEY", "NCBI_API_KEY", "OPENALEX_API_KEY"]
+  }
+}

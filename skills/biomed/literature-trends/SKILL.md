@@ -8,8 +8,8 @@ triggers:
   - "what hypotheses dominated [topic] in [year range]"
   - "show genealogy for [trend thread]"
 prerequisites:
-  - TypeDB running (make db-start)
-  - uv sync --all-extras
+  - TypeDB running (install alhazen-core first and run /alhazen-core:init)
+  - uv installed
   - scientific-literature skill installed and papers ingested with keyword tags
     (literature-trends queries scilit-paper entities and their keyword attributes)
 ---
@@ -27,26 +27,29 @@ Use this skill to perform **abductive argumentation analysis** on a tagged set o
 
 ## Quick Start
 
+> **Path note:** Replace `<skill-path>` with your installation directory
+> (e.g. `~/.claude/plugins/cache/literature-trends/` when installed as a plugin).
+
 ```bash
 # 1. Create a trend thread for a tagged cluster
-uv run python .claude/skills/literature-trends/literature_trends.py create-thread \
+uv run --project <skill-path> python <skill-path>/literature_trends.py create-thread \
     --name "Partial Reprogramming Trend Analysis" \
     --keyword "partial-reprogramming" \
     --source-collection "collection-925280f3c398"
 
 # 2. Record a hypothesis note for a time window
-uv run python .claude/skills/literature-trends/literature_trends.py record-hypothesis \
+uv run --project <skill-path> python <skill-path>/literature_trends.py record-hypothesis \
     --thread "trend-thread-abc123" \
     --window "2016-2018" \
     --content "## Window 2016-2018\n\n**Phenomenon:** ..."
 
 # 3. Link two hypotheses in genealogy
-uv run python .claude/skills/literature-trends/literature_trends.py record-genealogy \
+uv run --project <skill-path> python <skill-path>/literature_trends.py record-genealogy \
     --predecessor "note-abc123" --successor "note-def456" \
     --type "extends" --description "Extends to wild-type aging"
 
 # 4. Show the full genealogy chain
-uv run python .claude/skills/literature-trends/literature_trends.py show-thread \
+uv run --project <skill-path> python <skill-path>/literature_trends.py show-thread \
     --thread "trend-thread-abc123"
 ```
 
