@@ -244,7 +244,12 @@ export default function OpportunityPage({ params }: OpportunityPageProps) {
                     const colDesc = col.description;
                     return (
                       <div key={idx} className="p-3 rounded-lg bg-muted/50">
-                        <p className="font-medium text-sm">{colName}</p>
+                        <Link
+                          href={`/jobhunt/collection/${col['collection-id']}`}
+                          className="font-medium text-sm text-cyan-400 font-semibold underline underline-offset-2 hover:text-blue-400 transition-colors"
+                        >
+                          {colName}
+                        </Link>
                         {colDesc && (
                           <p className="text-xs text-muted-foreground mt-1">{colDesc}</p>
                         )}
