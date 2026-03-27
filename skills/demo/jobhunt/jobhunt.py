@@ -1225,12 +1225,39 @@ def cmd_show_opportunity(args):
             fetch {{ "id": $n.id, "name": $n.name, "content": $n.content }};'''
             notes_results = list(tx.query(notes_q).resolve())
 
+            # Get background reading collections
+            bg_cols = list(tx.query(f'''
+                match $o isa jobhunt-opportunity, has id "{args.id}";
+                      $c isa collection;
+                      (opportunity: $o, reading-material: $c) isa jobhunt-background-reading;
+                fetch {{ "collection-id": $c.id, "collection-name": $c.name }};
+            ''').resolve())
+
+            # FEX1 workaround: bind relation attribute in match clause
+            bg_descs = {r["collection-id"]: r["description"]
+                        for r in tx.query(f'''
+                match $o isa jobhunt-opportunity, has id "{args.id}";
+                      $c isa collection, has id $cid;
+                      $br (opportunity: $o, reading-material: $c) isa jobhunt-background-reading;
+                      $br has description $desc;
+                fetch {{ "collection-id": $cid, "description": $desc }};
+            ''').resolve()}
+
+            background_reading = []
+            for col in bg_cols:
+                cid = col["collection-id"]
+                item = {"collection-id": cid, "collection-name": col["collection-name"]}
+                if cid in bg_descs:
+                    item["description"] = bg_descs[cid]
+                background_reading.append(item)
+
     print(json.dumps({
         "success": True,
         "type": opp_type,
         "opportunity": opp,
         "company": company_results[0] if company_results else None,
         "notes": notes_results,
+        "background_reading": background_reading,
     }, indent=2, default=str))
 
 
@@ -1468,6 +1495,32 @@ def cmd_show_position(args):
             fetch {{ "name": $t.name }};'''
             tags_result = list(tx.query(tags_query).resolve())
 
+            # Get background reading collections
+            bg_cols = list(tx.query(f'''
+                match $p isa jobhunt-position, has id "{args.id}";
+                      $c isa collection;
+                      (opportunity: $p, reading-material: $c) isa jobhunt-background-reading;
+                fetch {{ "collection-id": $c.id, "collection-name": $c.name }};
+            ''').resolve())
+
+            # FEX1 workaround: bind relation attribute in match clause
+            bg_descs = {r["collection-id"]: r["description"]
+                        for r in tx.query(f'''
+                match $p isa jobhunt-position, has id "{args.id}";
+                      $c isa collection, has id $cid;
+                      $br (opportunity: $p, reading-material: $c) isa jobhunt-background-reading;
+                      $br has description $desc;
+                fetch {{ "collection-id": $cid, "description": $desc }};
+            ''').resolve()}
+
+            background_reading = []
+            for col in bg_cols:
+                cid = col["collection-id"]
+                item = {"collection-id": cid, "collection-name": col["collection-name"]}
+                if cid in bg_descs:
+                    item["description"] = bg_descs[cid]
+                background_reading.append(item)
+
     output = {
         "success": True,
         "position": pos_result[0] if pos_result else None,
@@ -1476,6 +1529,7 @@ def cmd_show_position(args):
         "requirements": req_result,
         "job_description": artifact_result[0] if artifact_result else None,
         "tags": [t.get("name") for t in tags_result],
+        "background_reading": background_reading,
     }
 
     print(json.dumps(output, indent=2, default=str))

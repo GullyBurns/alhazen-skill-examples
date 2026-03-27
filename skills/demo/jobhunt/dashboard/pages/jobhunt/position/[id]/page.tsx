@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
   ArrowLeft,
+  BookOpen,
   Building2,
   MapPin,
   DollarSign,
@@ -137,6 +138,7 @@ export default function PositionPage({ params }: PositionPageProps) {
   const requirements = data.requirements || [];
   const jobDescription = data.job_description;
   const tags = data.tags || [];
+  const backgroundReading = data.background_reading || [];
 
   // Extract position fields
   const title = getValue(position?.name) || 'Unknown Position';
@@ -411,6 +413,36 @@ export default function PositionPage({ params }: PositionPageProps) {
                       {companyUrl}
                     </a>
                   )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Background Reading */}
+            {backgroundReading.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BookOpen className="w-5 h-5" />
+                    Background Reading
+                    <Badge variant="secondary" className="ml-auto">
+                      {backgroundReading.length}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  {backgroundReading.map((col: any, idx: number) => {
+                    const colName = getValue(col['collection-name']) || col['collection-name'];
+                    const colDesc = getValue(col.description) || col.description;
+                    return (
+                      <div key={idx} className="p-3 rounded-lg bg-muted/50">
+                        <p className="font-medium text-sm">{colName}</p>
+                        {colDesc && (
+                          <p className="text-xs text-muted-foreground mt-1">{colDesc}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </CardContent>
               </Card>
             )}

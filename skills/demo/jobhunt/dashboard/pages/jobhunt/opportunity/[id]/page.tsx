@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
   ArrowLeft,
+  BookOpen,
   Building2,
   ExternalLink,
   RefreshCw,
@@ -114,6 +115,7 @@ export default function OpportunityPage({ params }: OpportunityPageProps) {
   const opp = data.opportunity;
   const company = data.company;
   const notes = data.notes || [];
+  const backgroundReading = data.background_reading || [];
   const oppType: string = data.type || '';
   const meta = TYPE_META[oppType] || TYPE_META['jobhunt-lead'];
 
@@ -219,6 +221,36 @@ export default function OpportunityPage({ params }: OpportunityPageProps) {
                       {idx < notes.length - 1 && <Separator className="mt-4" />}
                     </div>
                   ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Background Reading */}
+            {backgroundReading.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <BookOpen className="w-4 h-4" />
+                    Background Reading
+                    <Badge variant="secondary" className="ml-auto">
+                      {backgroundReading.length}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  {backgroundReading.map((col: any, idx: number) => {
+                    const colName = col['collection-name'];
+                    const colDesc = col.description;
+                    return (
+                      <div key={idx} className="p-3 rounded-lg bg-muted/50">
+                        <p className="font-medium text-sm">{colName}</p>
+                        {colDesc && (
+                          <p className="text-xs text-muted-foreground mt-1">{colDesc}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </CardContent>
               </Card>
             )}
