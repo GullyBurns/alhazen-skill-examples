@@ -17,18 +17,28 @@ import {
   Library,
 } from 'lucide-react';
 
-// Helper to extract value from TypeDB fetch result
-function getValue(attr: Array<{ value: unknown }> | undefined): string | null {
-  if (!attr || attr.length === 0) return null;
-  const val = String(attr[0].value);
-  // Unescape newlines/tabs — handle double-escaped (\\n) before single-escaped (\n)
-  return val.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n')
-            .replace(/\\\\t/g, '\t').replace(/\\t/g, '\t');
+// Helper to extract value — handles both plain values and TypeDB fetch arrays
+function getValue(attr: unknown): string | null {
+  if (attr === null || attr === undefined) return null;
+  if (typeof attr === 'string') {
+    return attr.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n')
+              .replace(/\\\\t/g, '\t').replace(/\\t/g, '\t');
+  }
+  if (typeof attr === 'number') return String(attr);
+  if (Array.isArray(attr) && attr.length > 0 && (attr[0] as { value?: unknown })?.value !== undefined) {
+    return getValue((attr[0] as { value: unknown }).value);
+  }
+  return null;
 }
 
-function getNumber(attr: Array<{ value: unknown }> | undefined): number | null {
-  if (!attr || attr.length === 0) return null;
-  return Number(attr[0].value);
+function getNumber(attr: unknown): number | null {
+  if (attr === null || attr === undefined) return null;
+  if (typeof attr === 'number') return attr;
+  if (typeof attr === 'string') { const n = Number(attr); return isNaN(n) ? null : n; }
+  if (Array.isArray(attr) && attr.length > 0 && (attr[0] as { value?: unknown })?.value !== undefined) {
+    return getNumber((attr[0] as { value: unknown }).value);
+  }
+  return null;
 }
 
 interface PaperNotesProps {
