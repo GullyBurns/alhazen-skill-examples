@@ -10,6 +10,5 @@
   "repository": "https://github.com/sciknow-io/alhazen-skill-examples",
   "license": "Apache-2.0",
   "keywords": ["jobhunt", "career", "typedb", "knowledge-graph"],
-  "hooks": "./hooks/hooks.json",
   "skills": ["./skills/jobhunt"]
 }
