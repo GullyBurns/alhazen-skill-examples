@@ -18,11 +18,13 @@ uv run --project <skill-path> python <skill-path>/alhazen_core.py init
   "database": "alhazen_notebook",
   "database_created": true,
   "schema": "loaded",
-  "message": "Alhazen core ready. Now load each skill's schema with its init-schema command."
+  "message": "Alhazen core ready."
 }
 ```
 
 Re-running `init` is safe — it skips steps that are already done.
+
+**Auto-schema detection:** If a `schema.tql` file exists in the same directory as `alhazen_core.py`, `init` loads it automatically after the base schema. The output will include `"extra_schema": "loaded"` and an updated message. This is used by self-contained plugin bundles (e.g. `plugins/jobhunt/`) so a single SessionStart hook initializes both schemas without a separate `init-schema` step.
 
 ### `status`
 

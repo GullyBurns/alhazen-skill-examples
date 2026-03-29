@@ -10,6 +10,12 @@ Usage:
     python alhazen_core.py status    # Check TypeDB container and database state
     python alhazen_core.py reset     # Drop and recreate the database (WARNING: destroys data)
 
+Auto-schema detection:
+    If a schema.tql file exists in the same directory as this script, `init` loads
+    it automatically after the base schema. This allows a self-contained plugin bundle
+    (e.g. plugins/jobhunt/) to initialize both the base schema and its domain schema
+    in a single `init` call — no separate init-schema step needed.
+
 Environment:
     TYPEDB_HOST         TypeDB host (default: localhost)
     TYPEDB_PORT         TypeDB port (default: 1729)
