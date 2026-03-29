@@ -1,7 +1,15 @@
 {
-  "hooks": [{
-    "event": "SessionStart",
-    "command": "uv run --project ${CLAUDE_PLUGIN_ROOT}/skills/jobhunt python ${CLAUDE_PLUGIN_ROOT}/skills/jobhunt/alhazen_core.py init",
-    "timeout": 90
-  }]
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project ${CLAUDE_PLUGIN_ROOT}/skills/jobhunt python ${CLAUDE_PLUGIN_ROOT}/skills/jobhunt/alhazen_core.py init",
+            "timeout": 90000
+          }
+        ]
+      }
+    ]
+  }
 }

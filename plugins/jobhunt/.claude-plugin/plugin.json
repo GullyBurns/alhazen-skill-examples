@@ -10,10 +10,6 @@
   "repository": "https://github.com/sciknow-io/alhazen-skill-examples",
   "license": "Apache-2.0",
   "keywords": ["jobhunt", "career", "typedb", "knowledge-graph"],
-  "requires": {
-    "system": {
-      "bins": ["uv", "docker"],
-      "description": "Docker must be running. TypeDB starts automatically via SessionStart hook."
-    }
-  }
+  "hooks": "./hooks/hooks.json",
+  "skills": ["./skills/jobhunt"]
 }

@@ -35,7 +35,8 @@ Self-contained plugins bundle everything they need — including the TypeDB init
 **Currently available:** `jobhunt`
 
 ```
-/plugins install https://github.com/sciknow-io/alhazen-skill-examples
+/plugin marketplace add sciknow-io/alhazen-skill-examples
+/plugin install jobhunt@alhazen-skills
 ```
 
 That's it. On the next session start, the SessionStart hook runs:
@@ -67,9 +68,10 @@ uv run --project <skill-path> python <skill-path>/jobhunt.py list-pipeline
 
 Standard plugins depend on the `alhazen-core` infrastructure plugin. Install it first, then install domain skills individually.
 
-**Step 1 — Install alhazen-core:**
+**Step 1 — Add the marketplace and install alhazen-core:**
 ```
-/plugins install https://github.com/sciknow-io/alhazen-skill-examples
+/plugin marketplace add sciknow-io/alhazen-skill-examples
+/plugin install alhazen-core@alhazen-skills
 ```
 
 Initialize the infrastructure (one-time):

@@ -2,6 +2,10 @@
   "name": "alhazen-skills",
   "description": "Knowledge graph skills for the Alhazen scientific notebook framework (TypeDB-powered)",
   "homepage": "https://github.com/sciknow-io/alhazen-skill-examples",
+  "owner": {
+    "name": "SciKnow.io",
+    "url": "https://github.com/sciknow-io"
+  },
   "plugins": [
     {
       "name": "alhazen-core",
