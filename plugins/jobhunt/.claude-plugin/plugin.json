@@ -1,0 +1,19 @@
+{
+  "name": "jobhunt",
+  "display_name": "Job Hunting Notebook",
+  "version": "1.0.0",
+  "description": "Track job applications, analyze positions, identify skill gaps, and plan your job search strategy. Requires Docker.",
+  "author": {
+    "name": "SciKnow.io",
+    "url": "https://github.com/sciknow-io"
+  },
+  "repository": "https://github.com/sciknow-io/alhazen-skill-examples",
+  "license": "Apache-2.0",
+  "keywords": ["jobhunt", "career", "typedb", "knowledge-graph"],
+  "requires": {
+    "system": {
+      "bins": ["uv", "docker"],
+      "description": "Docker must be running. TypeDB starts automatically via SessionStart hook."
+    }
+  }
+}

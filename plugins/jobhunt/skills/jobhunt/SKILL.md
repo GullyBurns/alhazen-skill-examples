@@ -11,14 +11,15 @@ Use this skill to manage your job search as a knowledge graph. Claude acts as yo
 
 ## Prerequisites
 
-- TypeDB must be running (install `alhazen-core` first and run `/alhazen-core:init`)
 - `uv` must be installed
+- Docker must be running (TypeDB starts automatically on session start)
 
-> **Path note:** Replace `<skill-path>` below with your installation directory:
-> - **Claude plugin install:** `${CLAUDE_PLUGIN_ROOT}/skills/jobhunt` (self-contained bundle at `plugins/jobhunt/`)
-> - **skillful-alhazen project:** `.claude/skills/jobhunt`
+> **Path note:**
+> - **Claude plugin install:** `<skill-path>` = `${CLAUDE_PLUGIN_ROOT}/skills/jobhunt`
+> - **skillful-alhazen project:** `<skill-path>` = `.claude/skills/jobhunt`
 >
-> When installed as a plugin, TypeDB starts automatically on session start (no manual init required).
+> TypeDB starts automatically on session start (via SessionStart hook).
+> No manual init required.
 
 ## Environment Variables
 

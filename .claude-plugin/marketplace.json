@@ -10,8 +10,8 @@
     },
     {
       "name": "jobhunt",
-      "source": "skills/demo/jobhunt",
-      "description": "Job hunting notebook — track applications, skill gaps, and learning plans"
+      "source": "plugins/jobhunt",
+      "description": "Job hunting notebook — track applications, skill gaps, and learning plans. Self-contained: TypeDB auto-initializes on session start."
     },
     {
       "name": "they-said-whaaa",
