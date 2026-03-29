@@ -13,31 +13,66 @@ This repo serves two purposes:
 
 ## Skills
 
-| Skill | Category | Description |
-|-------|----------|-------------|
-| [alhazen-core](skills/core/alhazen-core/) | core | **REQUIRED FIRST** — starts TypeDB, loads base schema |
-| [jobhunt](skills/demo/jobhunt/) | demo | Track job applications, identify skill gaps, plan learning |
-| [they-said-whaaa](skills/journalism/they-said-whaaa/) | journalism | Credibility tracker — ingest YouTube + news, detect contradictions |
-| [scientific-literature](skills/biomed/scientific-literature/) | biomed | Multi-source literature search (EPMC, PubMed, OpenAlex, bioRxiv) |
-| [alg-precision-therapeutics](skills/biomed/alg-precision-therapeutics/) | biomed | Rare disease mechanism investigation from a MONDO diagnosis |
+| Skill | Plugin type | Description |
+|-------|-------------|-------------|
+| [jobhunt](plugins/jobhunt/) | self-contained | Track job applications, identify skill gaps, plan learning |
+| [alhazen-core](skills/core/alhazen-core/) | infrastructure | Starts TypeDB, loads base schema — required by multi-plugin installs |
+| [they-said-whaaa](skills/journalism/they-said-whaaa/) | standard | Credibility tracker — ingest YouTube + news, detect contradictions |
+| [scientific-literature](skills/biomed/scientific-literature/) | standard | Multi-source literature search (EPMC, PubMed, OpenAlex, bioRxiv) |
+| [alg-precision-therapeutics](skills/biomed/alg-precision-therapeutics/) | standard | Rare disease mechanism investigation from a MONDO diagnosis |
 | [literature-trends](skills/biomed/literature-trends/) | biomed | Trace hypothesis evolution across time windows in a literature cluster |
 
 ---
 
 ## Install via Claude Code Marketplace (recommended)
 
-Requires Claude Code v1.0.33+.
+Requires Claude Code v1.0.33+. There are two plugin types with different install flows.
 
-### Step 1 — Install alhazen-core first
+### Self-contained plugins (zero-setup)
 
-`alhazen-core` starts the TypeDB Docker container and loads the base schema that all other skills extend. **Every other skill depends on it.**
+Self-contained plugins bundle everything they need — including the TypeDB init logic and base schema. TypeDB starts automatically on every session start via a SessionStart hook. No manual init required.
+
+**Currently available:** `jobhunt`
 
 ```
 /plugins install https://github.com/sciknow-io/alhazen-skill-examples
 ```
 
-Then initialize the infrastructure:
+That's it. On the next session start, the SessionStart hook runs:
+```bash
+uv run --project <plugin-root>/skills/jobhunt python <plugin-root>/skills/jobhunt/alhazen_core.py init
+```
 
+This starts the TypeDB Docker container (pulling the image if needed), creates the `alhazen_notebook` database, and loads both the base schema and jobhunt's domain schema. Subsequent session starts complete in under a second.
+
+Expected output on first run:
+```json
+{
+  "success": true,
+  "typedb": "running",
+  "database": "alhazen_notebook",
+  "database_created": true,
+  "schema": "loaded",
+  "extra_schema": "loaded",
+  "message": "Alhazen core ready. Base schema and skill schema loaded."
+}
+```
+
+Then use the skill:
+```bash
+uv run --project <skill-path> python <skill-path>/jobhunt.py list-pipeline
+```
+
+### Standard plugins (install alhazen-core first)
+
+Standard plugins depend on the `alhazen-core` infrastructure plugin. Install it first, then install domain skills individually.
+
+**Step 1 — Install alhazen-core:**
+```
+/plugins install https://github.com/sciknow-io/alhazen-skill-examples
+```
+
+Initialize the infrastructure (one-time):
 ```
 /alhazen-core:init
 ```
@@ -48,43 +83,46 @@ Expected output:
   "success": true,
   "typedb": "running",
   "database": "alhazen_notebook",
-  "schema": "loaded"
+  "schema": "loaded",
+  "message": "Alhazen core ready."
 }
 ```
 
-### Step 2 — Load a domain skill's schema
-
-After `init`, each skill needs its own schema loaded once:
-
+**Step 2 — Use a domain skill:**
 ```bash
 # Replace <skill-path> with your plugin cache path
-# e.g. ~/.claude/plugins/cache/jobhunt/
-uv run --project <skill-path> python <skill-path>/jobhunt.py init-schema
-```
-
-### Step 3 — Use the skill
-
-```bash
-uv run --project <skill-path> python <skill-path>/jobhunt.py list-pipeline
+# e.g. ~/.claude/plugins/cache/they-said-whaaa/
+uv run --project <skill-path> python <skill-path>/they_said_whaaa.py list-figures
 ```
 
 ### Marketplace structure
 
-The repo-level catalog is at [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json). Each skill directory has a `.claude-plugin/plugin.json` declaring its name, version, license, and prerequisites.
+The repo-level catalog is at [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
 
+**Self-contained plugin bundle** (`plugins/<name>/`):
 ```
-.claude-plugin/
-  marketplace.json          # Repo-level plugin catalog
+plugins/<name>/
+  .claude-plugin/
+    plugin.json             # Plugin metadata (no "requires": ["alhazen-core"])
+  hooks/
+    hooks.json              # SessionStart hook: runs alhazen_core.py init
+  skills/<name>/
+    SKILL.md                # Loaded at startup: triggers, quick start
+    USAGE.md                # Full reference: commands, workflows, data model
+    <name>.py               # CLI entry point
+    alhazen_core.py         # Bundled copy of alhazen-core init logic
+    alhazen_notebook.tql    # Bundled copy of the base schema
+    schema.tql              # This skill's domain schema (auto-loaded by init)
+    pyproject.toml          # uv dependency declaration
+```
 
+**Standard skill** (`skills/<category>/<name>/`):
+```
 skills/<category>/<name>/
   .claude-plugin/
-    plugin.json             # Plugin metadata (name, version, license, requires)
-  SKILL.md                  # Loaded at startup: triggers, quick start
-  USAGE.md                  # Full reference: commands, workflows, data model
-  skill.yaml                # Structured manifest
-  <name>.py                 # CLI entry point (standalone, no external package deps)
-  pyproject.toml            # uv-compatible dependency declaration
-  schema.tql                # TypeDB schema extension (loaded via init-schema)
+    plugin.json             # Includes "requires": {"plugins": ["alhazen-core"]}
+  SKILL.md / USAGE.md / skill.yaml
+  <name>.py / pyproject.toml / schema.tql
 ```
 
 ---
@@ -202,18 +240,32 @@ description: <one-liner — when to use it, not just what it is>
 
 ```
 .claude-plugin/
-  marketplace.json          # Repo-level plugin catalog (6 plugins)
+  marketplace.json          # Repo-level plugin catalog
 
-skills/
+plugins/                    # Self-contained plugin bundles (zero-setup installs)
+  jobhunt/                  # Self-contained jobhunt plugin
+    .claude-plugin/
+      plugin.json           # Standalone manifest (no alhazen-core dependency)
+    hooks/
+      hooks.json            # SessionStart hook: runs alhazen_core.py init
+    skills/jobhunt/
+      SKILL.md / USAGE.md   # Discovery and reference docs
+      jobhunt.py            # CLI: ingest-job, list-pipeline, show-gaps, ...
+      alhazen_core.py       # Bundled: TypeDB init logic
+      alhazen_notebook.tql  # Bundled: base schema
+      schema.tql            # jobhunt domain schema (auto-loaded by init)
+      pyproject.toml / uv.lock
+
+skills/                     # Canonical skill sources (standard plugins + skillful-alhazen)
   core/
     alhazen-core/           # Infrastructure: TypeDB setup + base schema
       alhazen_core.py       # CLI: init, status, reset
-      alhazen_notebook.tql  # Base schema (copy of skillful-alhazen core schema)
+      alhazen_notebook.tql  # Base schema
       SKILL.md / USAGE.md / skill.yaml / pyproject.toml
       .claude-plugin/plugin.json
 
   demo/
-    jobhunt/                # Job hunting notebook (reference implementation)
+    jobhunt/                # Canonical jobhunt source (mirrored into plugins/jobhunt/)
       jobhunt.py            # CLI: ingest-job, list-pipeline, show-gaps, ...
       SKILL.md / USAGE.md / skill.yaml / pyproject.toml / schema.tql
       .claude-plugin/plugin.json
@@ -242,8 +294,6 @@ skills/
       SKILL.md / USAGE.md / skill.yaml / pyproject.toml / schema.tql
       .claude-plugin/plugin.json
 
-  modeling/                 # Placeholder for future modeling skills
-
 demo/                       # Shared Next.js base app
   docker-compose.yml        # Full stack: TypeDB + dashboard
   Dockerfile
@@ -258,7 +308,7 @@ demo/                       # Shared Next.js base app
 
 See the [Alhazen Skill Architecture](https://github.com/GullyBurns/skillful-alhazen/wiki/Skill-Architecture) wiki for a full guide.
 
-Quick checklist:
+**Standard skill** (depends on alhazen-core):
 
 1. Copy the template: `cp -r skills/_template skills/<category>/<skill-name>`
 2. Write `SKILL.md` (triggers, prereqs, quick start, pointer to USAGE.md)
@@ -269,6 +319,17 @@ Quick checklist:
 7. Write `pyproject.toml` with direct deps (`typedb-driver>=3.8.0`, `requests`, etc.)
 8. Write `.claude-plugin/plugin.json` with `"requires": {"plugins": ["alhazen-core"]}`
 9. Add to `.claude-plugin/marketplace.json`
+
+**Self-contained plugin** (zero-setup, TypeDB auto-inits):
+
+Follow steps 1-9 above, then additionally:
+
+10. Create `plugins/<skill-name>/` mirroring the structure of `plugins/jobhunt/`
+11. Copy skill files into `plugins/<skill-name>/skills/<skill-name>/`
+12. Copy `alhazen_core.py` and `alhazen_notebook.tql` from `skills/core/alhazen-core/` into that directory — `alhazen_core.py init` will auto-detect `schema.tql` alongside it and load both schemas
+13. Write `plugins/<skill-name>/hooks/hooks.json` with the SessionStart hook pointing to the bundled `alhazen_core.py`
+14. Write `plugins/<skill-name>/.claude-plugin/plugin.json` without the `alhazen-core` requirement
+15. Update `.claude-plugin/marketplace.json` to point `source` at `plugins/<skill-name>`
 
 The jobhunt skill is the reference implementation of the **curation pattern**:
 1. **Foraging** — discover items of interest
