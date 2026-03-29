@@ -1,7 +1,7 @@
 {
   "name": "jobhunt",
   "display_name": "Job Hunting Notebook",
-  "version": "1.0.1",
+  "version": "0.0.4",
   "description": "Track job applications, analyze positions, identify skill gaps, and plan your job search strategy. Requires Docker.",
   "author": {
     "name": "SciKnow.io",
