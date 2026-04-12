@@ -110,7 +110,31 @@ uv run python .claude/skills/jobhunt/jobhunt.py show-artifact --id "artifact-xyz
    - Identify: requirements, responsibilities, qualifications
    - Note: team info, culture signals, growth opportunities
 
-3. **Create/update the company**
+3. **Research the company and leadership online** (use the web-search skill)
+
+   Search for: company mission, funding, recent news, and LinkedIn activity of key leaders.
+   Focus on:
+   - **Company:** founding story, funding/investors, mission statement, recent product launches
+   - **Leadership:** CEO, CTO, relevant SVPs — what are they posting about on LinkedIn?
+   - **Role context:** Which leader is likely the hiring manager? What technical bets is the team making?
+   - **Culture signals:** hiring pace, public talks, open-source releases, AI-in-residence programs
+
+   Save findings as a research note attached to **both** the company and the position:
+   ```bash
+   # Company-level research (background, funding, mission)
+   uv run python .claude/skills/jobhunt/jobhunt.py add-note \
+       --about "company-xyz" \
+       --type research \
+       --content "Series C, $4B raised. Mission: X. CEO recently spoke at Y conference..."
+
+   # Position-level research (leadership context, role fit signals, hiring manager)
+   uv run python .claude/skills/jobhunt/jobhunt.py add-note \
+       --about "position-abc123" \
+       --type research \
+       --content "Bo Wang (SVP Biomedical AI) is likely hiring manager. Very active on LinkedIn..."
+   ```
+
+4. **Create/update the company**
    ```bash
    uv run python .claude/skills/jobhunt/jobhunt.py add-company \
        --name "Anthropic" \
@@ -118,7 +142,7 @@ uv run python .claude/skills/jobhunt/jobhunt.py show-artifact --id "artifact-xyz
        --description "AI safety research company"
    ```
 
-4. **Extract requirements as fragments**
+5. **Extract requirements as fragments**
    ```bash
    uv run python .claude/skills/jobhunt/jobhunt.py add-requirement \
        --position "position-abc123" \
@@ -128,7 +152,7 @@ uv run python .claude/skills/jobhunt/jobhunt.py show-artifact --id "artifact-xyz
        --content "5+ years Python experience, focus on ML systems"
    ```
 
-5. **Create analysis notes**
+6. **Create analysis notes**
 
    **Fit Analysis Note:**
    ```bash
@@ -140,14 +164,6 @@ uv run python .claude/skills/jobhunt/jobhunt.py show-artifact --id "artifact-xyz
        --fit-summary "Strong technical fit, one gap to address"
    ```
 
-   **Research Note:**
-   ```bash
-   uv run python .claude/skills/jobhunt/jobhunt.py add-note \
-       --about "company-xyz" \
-       --type research \
-       --content "Series C, $4B raised. Strong safety focus."
-   ```
-
    **Skill Gap Note:**
    ```bash
    uv run python .claude/skills/jobhunt/jobhunt.py add-note \
@@ -156,14 +172,14 @@ uv run python .claude/skills/jobhunt/jobhunt.py show-artifact --id "artifact-xyz
        --content "Distributed systems is required. Recommend: DDIA book, MIT 6.824 course."
    ```
 
-6. **Flag uncertainties**
+7. **Flag uncertainties**
    ```bash
    uv run python .claude/skills/jobhunt/jobhunt.py tag \
        --entity "requirement-xyz" \
        --tag "uncertain"
    ```
 
-7. **Report findings to user**: company overview, fit score breakdown, key gaps, suggested next steps
+8. **Report findings to user**: company overview, leadership signals, fit score breakdown, key gaps, suggested next steps (including who to follow on LinkedIn)
 
 ---
 
