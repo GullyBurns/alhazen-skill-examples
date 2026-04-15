@@ -151,6 +151,7 @@ entity jobhunt-search-source sub domain-thing,
 
 # JOBHUNT-CANDIDATE - A discovered job posting (forager, lightweight)
 entity jobhunt-candidate sub domain-thing,
+    owns short-name,
     owns job-url,
     owns external-job-id,
     owns location,
