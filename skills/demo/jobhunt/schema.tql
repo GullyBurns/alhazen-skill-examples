@@ -26,6 +26,7 @@ attribute remote-policy, value string;
 attribute team-size, value string;
 
 # Application tracking
+# Valid application-status values: researching | applied | phone-screen | interviewing | offer | rejected | withdrawn
 attribute application-status, value string;
 attribute applied-date, value datetime;
 attribute interview-date, value datetime;

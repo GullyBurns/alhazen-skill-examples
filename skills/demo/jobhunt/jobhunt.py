@@ -192,6 +192,12 @@ def format_size(size_bytes):
 CACHE_AVAILABLE = True
 
 
+# Valid values for application-status (drives pipeline filtering — must be exact lowercase match)
+ALLOWED_APPLICATION_STATUSES = {
+    "researching", "applied", "phone-screen",
+    "interviewing", "offer", "rejected", "withdrawn",
+}
+
 # Configuration
 TYPEDB_HOST = os.getenv("TYPEDB_HOST", "localhost")
 TYPEDB_PORT = int(os.getenv("TYPEDB_PORT", "1729"))
@@ -549,6 +555,15 @@ def cmd_add_position(args):
 
 def cmd_update_status(args):
     """Update application status for a position."""
+    if args.status not in ALLOWED_APPLICATION_STATUSES:
+        print(
+            f"Error: invalid status '{args.status}'. "
+            f"Valid values: {', '.join(sorted(ALLOWED_APPLICATION_STATUSES))}",
+            file=sys.stderr,
+        )
+        print(json.dumps({"success": False, "error": f"invalid status: {args.status}"}))
+        return
+
     timestamp = get_timestamp()
     note_id = generate_id("note")
 
