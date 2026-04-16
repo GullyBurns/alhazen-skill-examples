@@ -194,7 +194,7 @@ export default function PositionPage({ params }: PositionPageProps) {
           </Link>
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">{title}</h1>
+              <h1 className="text-2xl font-bold text-foreground">{title}</h1>
               {companyName && (
                 <div className="flex items-center gap-2 text-muted-foreground mt-1">
                   <Building2 className="w-4 h-4" />
