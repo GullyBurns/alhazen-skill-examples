@@ -60,6 +60,13 @@ Commands:
     tag                     Tag an entity
     search-tag              Search entities by tag
 
+    # Evidence Pipeline (DisMech alignment)
+    add-evidence            Add literature evidence (PMID + snippet + classification) for a mechanism
+    show-evidence           Show all evidence claims for a mechanism with linked papers
+    search-evidence         Semantic search for evidence notes and sections (requires VOYAGE_API_KEY)
+    fetch-fulltext          Fetch PDF and embed sections for a paper tagged by MONDO ID
+    extract-mechanism-claims Use Claude to auto-extract mechanistic claims from paper sections
+
     # Scaffold
     build-corpus            Print (or execute) scientific-literature CLI commands (360-view)
 
@@ -202,6 +209,8 @@ MONARCH_BASE_URL = "https://api-v3.monarchinitiative.org/v3/api"
 CLINTRIALS_BASE_URL = "https://clinicaltrials.gov/api/v2"
 CHEMBL_BASE_URL = "https://www.ebi.ac.uk/chembl/api/data"
 
+VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
+
 # HP frequency qualifier mapping (HP codes -> string labels)
 HPO_FREQUENCY_MAP = {
     "HP:0040280": "obligate",       # 100%
@@ -255,6 +264,93 @@ def escape_string(s) -> str:
 def get_timestamp() -> str:
     """Get current timestamp for TypeDB."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+# =============================================================================
+# NOTE EMBEDDING CLIENT (Qdrant-backed semantic search for APT notes)
+# =============================================================================
+
+
+class NoteEmbeddingClient:
+    """Manages embedding of APT notes into the apt-notes Qdrant collection."""
+
+    COLLECTION = "apt-notes"
+    VECTOR_DIM = 1024  # voyage-3
+
+    def __init__(self):
+        try:
+            from qdrant_client import QdrantClient
+            from qdrant_client.models import Distance, VectorParams  # noqa: F401
+        except ImportError:
+            raise ImportError("qdrant-client not installed. Run: uv sync --all-extras")
+
+        host = os.getenv("QDRANT_HOST", "localhost")
+        port = int(os.getenv("QDRANT_PORT", "6333"))
+        self.client = QdrantClient(host=host, port=port)
+        self._ensure_collection()
+
+    def _ensure_collection(self):
+        from qdrant_client.models import Distance, VectorParams
+        existing = {c.name for c in self.client.get_collections().collections}
+        if self.COLLECTION not in existing:
+            self.client.create_collection(
+                collection_name=self.COLLECTION,
+                vectors_config=VectorParams(size=self.VECTOR_DIM, distance=Distance.COSINE),
+            )
+
+    def embed_note(self, note_id: str, content: str, metadata: dict) -> bool:
+        """Embed a note and upsert into apt-notes. Returns True on success."""
+        if not VOYAGE_API_KEY:
+            return False
+        try:
+            from skillful_alhazen.utils.embeddings import embed_texts
+            vector = embed_texts([content], input_type="document")[0]
+            point_id = str(uuid.uuid5(uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8"), note_id))
+            from qdrant_client.models import PointStruct
+            payload = {"note_id": note_id, **metadata}
+            self.client.upsert(
+                collection_name=self.COLLECTION,
+                points=[PointStruct(id=point_id, vector=vector, payload=payload)]
+            )
+            return True
+        except Exception as e:
+            print(f"Warning: embedding failed for note {note_id}: {e}", file=sys.stderr)
+            return False
+
+    def search(self, query: str, mondo_id: str = None, top_k: int = 10) -> list:
+        """Search apt-notes by semantic similarity."""
+        if not VOYAGE_API_KEY:
+            return []
+        try:
+            from skillful_alhazen.utils.embeddings import embed_texts
+            vector = embed_texts([query], input_type="query")[0]
+            query_filter = None
+            if mondo_id:
+                from qdrant_client.models import FieldCondition, Filter, MatchValue
+                query_filter = Filter(
+                    must=[FieldCondition(key="mondo_id", match=MatchValue(value=mondo_id))]
+                )
+            response = self.client.query_points(
+                collection_name=self.COLLECTION,
+                query=vector,
+                query_filter=query_filter,
+                limit=top_k,
+                with_payload=True,
+            )
+            return [
+                {
+                    "note_id": r.payload.get("note_id"),
+                    "note_type": r.payload.get("note_type", ""),
+                    "mechanism_id": r.payload.get("mechanism_id", ""),
+                    "mondo_id": r.payload.get("mondo_id", ""),
+                    "support_type": r.payload.get("support_type", ""),
+                    "score": round(r.score, 4),
+                }
+                for r in response.points
+            ]
+        except Exception as e:
+            print(f"Warning: search failed: {e}", file=sys.stderr)
+            return []
 
 
 def monarch_get(endpoint: str, params: dict = None) -> dict:
@@ -2554,6 +2650,597 @@ def _fetch_top_phenotypes(driver, disease_id: str) -> list:
         return []
 
 
+# =============================================================================
+# EVIDENCE PIPELINE COMMANDS (Phase 3: DisMech alignment)
+# =============================================================================
+
+
+def _find_scilit_script() -> str:
+    """Return path to scientific_literature.py CLI script."""
+    # Try .claude/skills symlink (local dev)
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(this_dir, "..", "scientific-literature", "scientific_literature.py"),
+        os.path.join(this_dir, "..", "..", "..", ".claude", "skills",
+                     "scientific-literature", "scientific_literature.py"),
+        ".claude/skills/scientific-literature/scientific_literature.py",
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return os.path.abspath(c)
+    return ".claude/skills/scientific-literature/scientific_literature.py"
+
+
+def _get_mechanism_info(mechanism_id: str) -> dict | None:
+    """Fetch mechanism entity data including linked disease mondo_id."""
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            results = list(tx.query(f'''
+                match $m isa apt-mechanism, has id "{escape_string(mechanism_id)}";
+                fetch {{
+                    "id": $m.id,
+                    "name": $m.name,
+                    "description": $m.description,
+                    "mechanism_type": $m.apt-mechanism-type
+                }};
+            ''').resolve())
+        if not results:
+            return None
+        info = results[0]
+
+        # Get linked disease for mondo_id
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            dres = list(tx.query(f'''
+                match
+                    $m isa apt-mechanism, has id "{escape_string(mechanism_id)}";
+                    $d isa apt-disease;
+                    (mechanism: $m, disease: $d) isa apt-disease-has-mechanism;
+                fetch {{ "mondo_id": $d.apt-mondo-id, "disease_id": $d.id }};
+            ''').resolve())
+        if dres:
+            info["mondo_id"] = dres[0].get("mondo_id", "")
+            info["disease_id"] = dres[0].get("disease_id", "")
+        else:
+            info["mondo_id"] = ""
+            info["disease_id"] = ""
+    return info
+
+
+def _fetch_paper_by_pmid(pmid: str) -> dict | None:
+    """Look up scilit-paper in TypeDB by PMID. Returns None if not found."""
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            results = list(tx.query(f'''
+                match $p isa scilit-paper, has pmid "{escape_string(pmid)}";
+                fetch {{ "id": $p.id, "name": $p.name }};
+            ''').resolve())
+    return results[0] if results else None
+
+
+def _insert_minimal_paper(pmid: str) -> dict:
+    """Fetch minimal metadata from EPMC and insert a scilit-paper entity. Returns paper info."""
+    import subprocess
+    # Try EPMC first for minimal metadata
+    title = f"PMID:{pmid}"
+    abstract = ""
+    if REQUESTS_AVAILABLE:
+        try:
+            resp = requests.get(
+                "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+                params={"query": f"EXT_ID:{pmid} AND SRC:MED", "format": "json",
+                        "resultType": "core", "pageSize": 1},
+                timeout=15,
+                headers={"Accept": "application/json"},
+            )
+            data = resp.json()
+            results = data.get("resultList", {}).get("result", [])
+            if results:
+                r = results[0]
+                title = r.get("title", title)
+                abstract = r.get("abstractText", "")
+        except Exception as e:
+            print(f"Warning: EPMC fetch failed for PMID {pmid}: {e}", file=sys.stderr)
+
+    paper_id = generate_id("scilit-paper")
+    timestamp = get_timestamp()
+    escaped_title = escape_string(title[:400])
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            q = (f'insert $p isa scilit-paper, has id "{paper_id}",'
+                 f' has name "{escaped_title}",'
+                 f' has pmid "{escape_string(pmid)}",'
+                 f' has created-at {timestamp}')
+            if abstract:
+                q += f', has abstract-text "{escape_string(abstract[:4000])}"'
+            q += ";"
+            tx.query(q).resolve()
+            tx.commit()
+
+    return {"id": paper_id, "name": title}
+
+
+def cmd_add_evidence(args):
+    """Add literature evidence for a mechanism (PMID + snippet + support classification)."""
+    timestamp = get_timestamp()
+
+    # 1. Validate mechanism
+    mech_info = _get_mechanism_info(args.mechanism_id)
+    if not mech_info:
+        print(json.dumps({"success": False,
+                          "error": f"Mechanism not found: {args.mechanism_id}"}))
+        return
+
+    mechanism_type = mech_info.get("mechanism_type", "unknown")
+    mondo_id = mech_info.get("mondo_id", "")
+
+    # 2. Look up or insert scilit-paper by PMID
+    paper = _fetch_paper_by_pmid(str(args.pmid))
+    if not paper:
+        print(f"Paper PMID:{args.pmid} not found in TypeDB — fetching from EPMC...",
+              file=sys.stderr)
+        paper = _insert_minimal_paper(str(args.pmid))
+
+    paper_id = paper["id"]
+
+    # 3. Create scilit-extraction-note (content only — no apt attrs, scilit schema)
+    extract_id = generate_id("scilit-extract")
+    snippet_escaped = escape_string(args.snippet)
+    explanation = escape_string(getattr(args, "explanation", "") or "")
+    extract_content = args.snippet
+    if explanation:
+        extract_content += f"\n\nExplanation: {args.explanation}"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''insert $n isa scilit-extraction-note,
+                has id "{extract_id}",
+                has name "Evidence: {escape_string(args.snippet[:60])}",
+                has content "{escape_string(extract_content)}",
+                has created-at {timestamp};''').resolve()
+            tx.commit()
+
+        # Link extraction note to paper
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $n isa scilit-extraction-note, has id "{extract_id}";
+                $p isa scilit-paper, has id "{paper_id}";
+            insert (note: $n, subject: $p) isa aboutness;''').resolve()
+            tx.commit()
+
+    # 4. Create apt-mechanism-claim-note
+    claim_id = generate_id("apt-claim-note")
+    claim_name = f"Claim: {mechanism_type} - {args.support_type}"
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''insert $n isa apt-mechanism-claim-note,
+                has id "{claim_id}",
+                has name "{escape_string(claim_name)}",
+                has content "{snippet_escaped}",
+                has apt-mechanism-type "{escape_string(mechanism_type)}",
+                has apt-support-type "{escape_string(args.support_type)}",
+                has apt-evidence-source "{escape_string(args.evidence_source)}",
+                has created-at {timestamp};''').resolve()
+            tx.commit()
+
+        # Link claim note to mechanism
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $n isa apt-mechanism-claim-note, has id "{claim_id}";
+                $m isa apt-mechanism, has id "{escape_string(args.mechanism_id)}";
+            insert (note: $n, subject: $m) isa aboutness;''').resolve()
+            tx.commit()
+
+        # 5. Link claim -> extraction via evidence-chain
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $claim isa apt-mechanism-claim-note, has id "{claim_id}";
+                $extract isa scilit-extraction-note, has id "{extract_id}";
+            insert (claim: $claim, evidence: $extract) isa evidence-chain;''').resolve()
+            tx.commit()
+
+    # 6. Optionally embed the claim note
+    embedded = False
+    if VOYAGE_API_KEY:
+        try:
+            client = NoteEmbeddingClient()
+            embedded = client.embed_note(
+                note_id=claim_id,
+                content=args.snippet,
+                metadata={
+                    "note_type": "apt-mechanism-claim-note",
+                    "mechanism_id": args.mechanism_id,
+                    "mondo_id": mondo_id,
+                    "support_type": args.support_type,
+                },
+            )
+        except Exception as e:
+            print(f"Warning: Qdrant embedding skipped: {e}", file=sys.stderr)
+
+    print(json.dumps({
+        "success": True,
+        "claim_note_id": claim_id,
+        "extraction_note_id": extract_id,
+        "paper_id": paper_id,
+        "pmid": str(args.pmid),
+        "support_type": args.support_type,
+        "evidence_source": args.evidence_source,
+        "embedded": embedded,
+    }, indent=2))
+
+
+def cmd_show_evidence(args):
+    """Show all evidence claims for a mechanism with linked papers."""
+    mechanism_id = args.mechanism_id
+
+    with get_driver() as driver:
+        # Fetch all claim notes about the mechanism
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            claim_rows = list(tx.query(f'''
+                match
+                    $mech isa apt-mechanism, has id "{escape_string(mechanism_id)}";
+                    $claim isa apt-mechanism-claim-note;
+                    (note: $claim, subject: $mech) isa aboutness;
+                    $claim has id $cid, has content $ccontent, has apt-support-type $csup,
+                           has apt-evidence-source $csrc;
+                fetch {{
+                    "claim_id": $cid,
+                    "content": $ccontent,
+                    "support_type": $csup,
+                    "evidence_source": $csrc
+                }};
+            ''').resolve())
+
+    evidence_items = []
+    for claim in claim_rows:
+        claim_id = claim.get("claim_id", "")
+        snippet = (claim.get("content") or "")[:300]
+
+        # Fetch linked extraction notes via evidence-chain
+        extraction_content = ""
+        paper_title = ""
+        pmid = ""
+        paper_id = ""
+
+        with get_driver() as driver:
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                extract_rows = list(tx.query(f'''
+                    match
+                        $claim isa apt-mechanism-claim-note, has id "{escape_string(claim_id)}";
+                        $extract isa note;
+                        (claim: $claim, evidence: $extract) isa evidence-chain;
+                        $extract has id $eid, has content $econtent;
+                    fetch {{ "extract_id": $eid, "content": $econtent }};
+                ''').resolve())
+
+            for ext in extract_rows:
+                extraction_content = (ext.get("content") or "")[:500]
+                ext_id = ext.get("extract_id", "")
+
+                # Find linked paper
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx2:
+                    paper_rows = list(tx2.query(f'''
+                        match
+                            $extract isa note, has id "{escape_string(ext_id)}";
+                            $paper isa scilit-paper;
+                            (note: $extract, subject: $paper) isa aboutness;
+                            $paper has id $pid, has name $title;
+                        fetch {{ "paper_id": $pid, "title": $title }};
+                    ''').resolve())
+                if paper_rows:
+                    paper_title = paper_rows[0].get("title", "")
+                    paper_id = paper_rows[0].get("paper_id", "")
+
+                # Try to get PMID separately (optional attribute)
+                if paper_id:
+                    with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx3:
+                        pmid_rows = list(tx3.query(f'''
+                            match $paper isa scilit-paper, has id "{escape_string(paper_id)}",
+                                  has pmid $pmid_val;
+                            fetch {{ "pmid": $pmid_val }};
+                        ''').resolve())
+                    if pmid_rows:
+                        pmid = pmid_rows[0].get("pmid", "")
+
+                break  # use first extraction note
+
+        evidence_items.append({
+            "claim_id": claim_id,
+            "support_type": claim.get("support_type", ""),
+            "evidence_source": claim.get("evidence_source", ""),
+            "snippet": snippet,
+            "extraction_content": extraction_content,
+            "paper_title": paper_title,
+            "paper_id": paper_id,
+            "pmid": pmid,
+        })
+
+    print(json.dumps({
+        "success": True,
+        "mechanism_id": mechanism_id,
+        "count": len(evidence_items),
+        "evidence": evidence_items,
+    }, indent=2))
+
+
+def cmd_search_evidence(args):
+    """Semantic search for evidence notes and sections related to a query and MONDO ID."""
+    query = args.query
+    mondo_id = getattr(args, "mondo_id", "") or ""
+    top_k = getattr(args, "top_k", 10) or 10
+
+    if not VOYAGE_API_KEY:
+        print(json.dumps({
+            "success": False,
+            "warning": "VOYAGE_API_KEY not set — semantic search unavailable.",
+            "results": [],
+        }, indent=2))
+        return
+
+    results = []
+
+    # Search apt-notes (claim notes)
+    try:
+        embedding_client = NoteEmbeddingClient()
+        note_hits = embedding_client.search(query=query, mondo_id=mondo_id or None, top_k=top_k)
+        for h in note_hits:
+            results.append({**h, "layer": "note"})
+    except Exception as e:
+        print(f"Warning: apt-notes search failed: {e}", file=sys.stderr)
+
+    # Search apt-sections via scilit subprocess
+    scilit_script = _find_scilit_script()
+    if os.path.isfile(scilit_script):
+        import subprocess
+        cmd_args = [sys.executable, scilit_script, "search-sections", "--query", query,
+                    "--top-k", str(top_k)]
+        if mondo_id:
+            cmd_args += ["--tag-mondo-id", mondo_id]
+        try:
+            proc = subprocess.run(cmd_args, capture_output=True, text=True, timeout=60)
+            if proc.returncode == 0 and proc.stdout.strip():
+                scilit_data = json.loads(proc.stdout)
+                for section in scilit_data.get("results", []):
+                    results.append({**section, "layer": "fragment"})
+        except Exception as e:
+            print(f"Warning: scilit search-sections failed: {e}", file=sys.stderr)
+
+    print(json.dumps({
+        "success": True,
+        "query": query,
+        "mondo_id": mondo_id,
+        "count": len(results),
+        "results": results,
+    }, indent=2))
+
+
+def cmd_fetch_fulltext(args):
+    """Fetch PDF and embed sections for a scilit-paper, tagged with a MONDO ID."""
+    import subprocess
+    scilit_script = _find_scilit_script()
+    if not os.path.isfile(scilit_script):
+        print(json.dumps({"success": False, "error": f"scilit script not found: {scilit_script}"}))
+        return
+
+    paper_id = args.paper_id
+    mondo_id = args.mondo_id
+
+    # Step 1: fetch PDF
+    print(f"Fetching PDF for {paper_id}...", file=sys.stderr)
+    pdf_result = subprocess.run(
+        [sys.executable, scilit_script, "fetch-pdf", "--id", paper_id],
+        capture_output=True, text=True, timeout=120,
+    )
+    pdf_ok = pdf_result.returncode == 0
+    if not pdf_ok:
+        print(f"Warning: fetch-pdf returned exit {pdf_result.returncode}: {pdf_result.stderr[:200]}",
+              file=sys.stderr)
+
+    # Step 2: embed sections
+    print(f"Embedding sections for {paper_id} (tagged {mondo_id})...", file=sys.stderr)
+    embed_result = subprocess.run(
+        [sys.executable, scilit_script, "embed-sections",
+         "--paper-id", paper_id, "--tag-mondo-id", mondo_id],
+        capture_output=True, text=True, timeout=300,
+    )
+    embed_ok = embed_result.returncode == 0
+    section_count = 0
+    embedded_count = 0
+    if embed_ok and embed_result.stdout.strip():
+        try:
+            embed_data = json.loads(embed_result.stdout)
+            section_count = embed_data.get("section_count", 0)
+            embedded_count = embed_data.get("embedded_count", 0)
+        except Exception:
+            pass
+
+    print(json.dumps({
+        "success": embed_ok,
+        "paper_id": paper_id,
+        "mondo_id": mondo_id,
+        "pdf_fetched": pdf_ok,
+        "section_count": section_count,
+        "embedded_count": embedded_count,
+    }, indent=2))
+
+
+def cmd_extract_mechanism_claims(args):
+    """Use Claude to extract mechanistic evidence claims from paper sections."""
+    try:
+        import anthropic
+    except ImportError:
+        print(json.dumps({"success": False,
+                          "error": "anthropic package not installed. Run: uv add anthropic"}))
+        return
+
+    mechanism_id = args.mechanism_id
+    paper_id = args.paper_id
+
+    # 1. Fetch mechanism info
+    mech_info = _get_mechanism_info(mechanism_id)
+    if not mech_info:
+        print(json.dumps({"success": False,
+                          "error": f"Mechanism not found: {mechanism_id}"}))
+        return
+
+    mechanism_type = mech_info.get("mechanism_type", "unknown")
+    mechanism_desc = mech_info.get("description", mech_info.get("name", ""))
+    mondo_id = mech_info.get("mondo_id", "")
+
+    # 2. Search for relevant sections
+    sections = []
+    scilit_script = _find_scilit_script()
+    if os.path.isfile(scilit_script) and VOYAGE_API_KEY:
+        import subprocess
+        query_text = f"{mechanism_desc} {mechanism_type}"
+        cmd_args = [sys.executable, scilit_script, "search-sections",
+                    "--query", query_text, "--top-k", "8",
+                    "--paper-id", paper_id]
+        try:
+            proc = subprocess.run(cmd_args, capture_output=True, text=True, timeout=60)
+            if proc.returncode == 0 and proc.stdout.strip():
+                scilit_data = json.loads(proc.stdout)
+                sections = scilit_data.get("results", [])
+        except Exception as e:
+            print(f"Warning: search-sections failed: {e}", file=sys.stderr)
+    elif not VOYAGE_API_KEY:
+        print("Warning: VOYAGE_API_KEY not set; section search skipped.", file=sys.stderr)
+
+    if not sections:
+        print(json.dumps({
+            "success": False,
+            "error": "No sections found. Run fetch-fulltext first.",
+            "mechanism_id": mechanism_id,
+            "paper_id": paper_id,
+        }))
+        return
+
+    # 3. Call Claude for each section
+    anthropic_client = anthropic.Anthropic()
+    claims_created = 0
+    sections_searched = len(sections)
+
+    for section in sections:
+        section_content = section.get("content", section.get("text", ""))
+        if not section_content:
+            continue
+
+        prompt = f"""You are analyzing scientific literature to find evidence for a disease mechanism.
+
+Mechanism: {mechanism_desc} (type: {mechanism_type})
+
+Section text:
+{section_content[:3000]}
+
+Does this text support, refute, or partially support the mechanism?
+Reply ONLY with a JSON object (no markdown, no explanation outside JSON):
+{{"support_type": "SUPPORTS|REFUTES|PARTIAL|NO_EVIDENCE", "snippet": "most relevant quote (max 300 chars)", "explanation": "brief explanation", "evidence_source": "HUMAN_CLINICAL|MODEL_ORGANISM|IN_VITRO|COMPUTATIONAL|OTHER"}}"""
+
+        try:
+            message = anthropic_client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw_text = message.content[0].text.strip()
+            # Strip markdown code fences if present
+            if raw_text.startswith("```"):
+                raw_text = "\n".join(raw_text.split("\n")[1:-1])
+            extraction = json.loads(raw_text)
+        except Exception as e:
+            print(f"Warning: Claude extraction failed for section: {e}", file=sys.stderr)
+            continue
+
+        support_type = extraction.get("support_type", "NO_EVIDENCE")
+        if support_type == "NO_EVIDENCE":
+            continue
+
+        snippet = extraction.get("snippet", section_content[:300])
+        explanation = extraction.get("explanation", "")
+        evidence_source = extraction.get("evidence_source", "OTHER")
+
+        # Insert evidence directly using the same logic as cmd_add_evidence
+        timestamp = get_timestamp()
+        extract_id = generate_id("scilit-extract")
+        claim_id = generate_id("apt-claim-note")
+        claim_name = f"Claim: {mechanism_type} - {support_type}"
+        extract_content = snippet
+        if explanation:
+            extract_content += f"\n\nExplanation: {explanation}"
+
+        try:
+            with get_driver() as driver:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''insert $n isa scilit-extraction-note,
+                        has id "{extract_id}",
+                        has name "Evidence: {escape_string(snippet[:60])}",
+                        has content "{escape_string(extract_content)}",
+                        has created-at {timestamp};''').resolve()
+                    tx.commit()
+
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $n isa scilit-extraction-note, has id "{extract_id}";
+                        $p isa scilit-paper, has id "{escape_string(paper_id)}";
+                    insert (note: $n, subject: $p) isa aboutness;''').resolve()
+                    tx.commit()
+
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''insert $n isa apt-mechanism-claim-note,
+                        has id "{claim_id}",
+                        has name "{escape_string(claim_name)}",
+                        has content "{escape_string(snippet)}",
+                        has apt-mechanism-type "{escape_string(mechanism_type)}",
+                        has apt-support-type "{escape_string(support_type)}",
+                        has apt-evidence-source "{escape_string(evidence_source)}",
+                        has created-at {timestamp};''').resolve()
+                    tx.commit()
+
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $n isa apt-mechanism-claim-note, has id "{claim_id}";
+                        $m isa apt-mechanism, has id "{escape_string(mechanism_id)}";
+                    insert (note: $n, subject: $m) isa aboutness;''').resolve()
+                    tx.commit()
+
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $claim isa apt-mechanism-claim-note, has id "{claim_id}";
+                        $extract isa scilit-extraction-note, has id "{extract_id}";
+                    insert (claim: $claim, evidence: $extract) isa evidence-chain;''').resolve()
+                    tx.commit()
+
+            claims_created += 1
+
+            # Optional embedding
+            if VOYAGE_API_KEY:
+                try:
+                    ec = NoteEmbeddingClient()
+                    ec.embed_note(
+                        note_id=claim_id,
+                        content=snippet,
+                        metadata={
+                            "note_type": "apt-mechanism-claim-note",
+                            "mechanism_id": mechanism_id,
+                            "mondo_id": mondo_id,
+                            "support_type": support_type,
+                        },
+                    )
+                except Exception:
+                    pass
+
+        except Exception as e:
+            print(f"Warning: failed to store claim for section: {e}", file=sys.stderr)
+            continue
+
+    print(json.dumps({
+        "success": True,
+        "mechanism_id": mechanism_id,
+        "paper_id": paper_id,
+        "sections_searched": sections_searched,
+        "claims_created": claims_created,
+    }, indent=2))
+
+
 def cmd_build_corpus(args):
     """Print ready-to-run scientific-literature CLI commands (360-view strategy)."""
     mondo_id = args.mondo_id
@@ -2864,6 +3551,50 @@ def build_parser():
     p.add_argument("--link-to-investigation", dest="link_to_investigation", default="",
                    help="Link synthesis note to this investigation ID")
 
+    # add-evidence
+    p = sub.add_parser("add-evidence", help="Add literature evidence for a mechanism")
+    p.add_argument("--mechanism-id", dest="mechanism_id", required=True,
+                   help="Mechanism entity ID")
+    p.add_argument("--pmid", required=True, help="PubMed ID of supporting paper")
+    p.add_argument("--snippet", required=True, help="Relevant text snippet from paper")
+    p.add_argument("--support-type", dest="support_type", required=True,
+                   choices=["SUPPORTS", "REFUTES", "PARTIAL"],
+                   help="How this evidence relates to the mechanism")
+    p.add_argument("--evidence-source", dest="evidence_source", required=True,
+                   choices=["HUMAN_CLINICAL", "MODEL_ORGANISM", "IN_VITRO",
+                            "COMPUTATIONAL", "OTHER"],
+                   help="Type of experimental evidence")
+    p.add_argument("--explanation", default="", help="Optional explanation of relevance")
+
+    # show-evidence
+    p = sub.add_parser("show-evidence", help="Show all evidence claims for a mechanism")
+    p.add_argument("--mechanism-id", dest="mechanism_id", required=True,
+                   help="Mechanism entity ID")
+
+    # search-evidence
+    p = sub.add_parser("search-evidence", help="Semantic search for evidence notes and sections")
+    p.add_argument("--query", required=True, help="Search query text")
+    p.add_argument("--mondo-id", dest="mondo_id", default="",
+                   help="Filter to this MONDO ID (optional)")
+    p.add_argument("--top-k", dest="top_k", type=int, default=10,
+                   help="Max results to return (default: 10)")
+
+    # fetch-fulltext
+    p = sub.add_parser("fetch-fulltext",
+                       help="Fetch PDF and embed sections for a paper (tagged by MONDO ID)")
+    p.add_argument("--paper-id", dest="paper_id", required=True,
+                   help="scilit-paper entity ID")
+    p.add_argument("--mondo-id", dest="mondo_id", required=True,
+                   help="MONDO ID to tag sections with")
+
+    # extract-mechanism-claims
+    p = sub.add_parser("extract-mechanism-claims",
+                       help="Use Claude to extract mechanistic claims from paper sections")
+    p.add_argument("--mechanism-id", dest="mechanism_id", required=True,
+                   help="Mechanism entity ID")
+    p.add_argument("--paper-id", dest="paper_id", required=True,
+                   help="scilit-paper entity ID")
+
     return parser
 
 
@@ -2903,6 +3634,11 @@ COMMAND_MAP = {
     "tag": cmd_tag,
     "search-tag": cmd_search_tag,
     "build-corpus": cmd_build_corpus,
+    "add-evidence": cmd_add_evidence,
+    "show-evidence": cmd_show_evidence,
+    "search-evidence": cmd_search_evidence,
+    "fetch-fulltext": cmd_fetch_fulltext,
+    "extract-mechanism-claims": cmd_extract_mechanism_claims,
 }
 
 
