@@ -117,6 +117,11 @@ attribute apt-evidence-code, value string;
 attribute apt-biomarker-type, value string;
 attribute apt-diagnostic-confidence, value string;
 attribute apt-similarity-score, value double;
+attribute apt-mechanism-confidence-tier, value string;
+attribute apt-causal-link-type, value string;
+attribute apt-hypothesis-status, value string;
+attribute apt-support-type, value string;
+attribute apt-evidence-source, value string;
 
 
 # -----------------------------------------------------------------------------
@@ -189,12 +194,16 @@ entity apt-mechanism sub domain-thing,
     owns apt-therapeutic-addressability,
     owns apt-mechanism-evidence-strength,
     owns apt-functional-impact,
+    owns apt-mechanism-confidence-tier,
     plays apt-disease-has-mechanism:mechanism,
     plays apt-mechanism-involves-gene:mechanism,
     plays apt-mechanism-involves-protein:mechanism,
     plays apt-mechanism-affects-pathway:mechanism,
     plays apt-mechanism-causes-phenotype:mechanism,
-    plays apt-strategy-targets-mechanism:mechanism;
+    plays apt-strategy-targets-mechanism:mechanism,
+    plays apt-mechanism-causes:cause,
+    plays apt-mechanism-causes:effect,
+    plays apt-hypothesis-groups-mechanism:mechanism;
 
 # APT-PATHWAY - Biological pathway implicated in disease mechanism
 entity apt-pathway sub domain-thing,
@@ -339,6 +348,19 @@ entity apt-research-gaps-note sub note;
 
 entity apt-phenotypic-spectrum-note sub note;
 
+# APT-MECHANISM-HYPOTHESIS - A mechanistic hypothesis grouping (DisMech alignment)
+entity apt-mechanism-hypothesis sub domain-thing,
+    owns apt-hypothesis-status,
+    owns description,
+    plays apt-hypothesis-groups-mechanism:hypothesis;
+
+# APT-MECHANISM-CLAIM-NOTE - A literature-backed mechanistic claim (evidence chain anchor)
+entity apt-mechanism-claim-note sub note,
+    owns apt-mechanism-type,
+    owns apt-causal-link-type,
+    owns apt-support-type,
+    owns apt-evidence-source;
+
 
 # -----------------------------------------------------------------------------
 # RELATION TYPES - Disease-centric
@@ -480,6 +502,24 @@ relation apt-biomarker-for,
 relation apt-investigation-for-disease,
     relates investigation,
     relates disease;
+
+
+# -----------------------------------------------------------------------------
+# RELATION TYPES - Causal chain (DisMech alignment)
+# -----------------------------------------------------------------------------
+
+# APT-MECHANISM-CAUSES - Directed causal link between two mechanisms
+relation apt-mechanism-causes,
+    owns apt-causal-link-type,
+    owns confidence,
+    owns provenance,
+    relates cause,
+    relates effect;
+
+# APT-HYPOTHESIS-GROUPS-MECHANISM - Groups mechanisms under a causal hypothesis
+relation apt-hypothesis-groups-mechanism,
+    relates hypothesis,
+    relates mechanism;
 
 
 # =============================================================================
