@@ -1829,6 +1829,7 @@ def cmd_show_mechanisms(args):
                     "description": $m.description,
                     "type": $m.apt-mechanism-type,
                     "level": $m.apt-mechanism-level,
+                    "confidence_tier": $m.apt-mechanism-confidence-tier,
                     "functional_impact": $m.apt-functional-impact,
                     "evidence_strength": $m.apt-mechanism-evidence-strength,
                     "therapeutic_addressability": $m.apt-therapeutic-addressability
