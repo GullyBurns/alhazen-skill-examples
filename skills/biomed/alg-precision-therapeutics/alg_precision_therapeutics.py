@@ -1437,11 +1437,11 @@ def cmd_add_mechanism(args):
             tx.query(query).resolve()
             tx.commit()
 
-        # Link to disease
+        # Link to disease — args.disease is a MONDO ID, not internal id
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(f'''match
                 $m isa apt-mechanism, has id "{mechanism_id}";
-                $d isa apt-disease, has id "{escape_string(args.disease)}";
+                $d isa apt-disease, has apt-mondo-id "{escape_string(args.disease)}";
             insert (mechanism: $m, disease: $d) isa apt-disease-has-mechanism;''').resolve()
             tx.commit()
 
