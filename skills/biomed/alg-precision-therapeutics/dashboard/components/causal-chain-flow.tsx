@@ -6,7 +6,7 @@ export interface Mechanism {
   level: string;
   name?: string;
   description: string;
-  confidence_tier?: string;
+  confidence_tier?: string | null;
   evidence_strength?: string | null;
   therapeutic_addressability?: string | null;
   genes: { symbol: string; id: string }[];
