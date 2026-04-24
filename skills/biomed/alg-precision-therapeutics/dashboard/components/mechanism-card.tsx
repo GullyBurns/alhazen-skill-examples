@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dna, Activity, Pill, ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
+import EvidenceChain from './evidence-chain';
 
 export interface Mechanism {
   id: string;
@@ -11,12 +12,19 @@ export interface Mechanism {
   level: string;
   name: string;
   description: string;
+  confidence_tier?: string | null;
   evidence_strength: string | null;
   therapeutic_addressability: string | null;
   genes: { symbol: string; id: string }[];
   phenotypes_caused: { hpo_id: string; label: string }[];
   therapeutic_strategies: { id: string; approach: string; name: string }[];
 }
+
+const TIER_STYLES: Record<string, string> = {
+  ESTABLISHED:  'bg-green-900/60 text-green-300 border-green-700',
+  PROVISIONAL:  'bg-amber-900/60 text-amber-300 border-amber-700',
+  HYPOTHETICAL: 'bg-blue-900/60 text-blue-300 border-blue-700',
+};
 
 const TYPE_STYLES: Record<string, string> = {
   haploinsufficiency:    'bg-blue-500/15 text-blue-300 border-blue-500/30',
@@ -55,6 +63,8 @@ export function MechanismCard({ mechanism, index }: MechanismCardProps) {
 
   const typeStyle = TYPE_STYLES[mechanism.type] ?? 'bg-muted text-muted-foreground border-border';
   const levelStyle = LEVEL_STYLES[mechanism.level] ?? 'bg-muted text-muted-foreground border-border';
+  const tier = mechanism.confidence_tier || 'HYPOTHETICAL';
+  const tierStyle = TIER_STYLES[tier] ?? TIER_STYLES.HYPOTHETICAL;
 
   return (
     <Card className="border-border/60">
@@ -67,6 +77,9 @@ export function MechanismCard({ mechanism, index }: MechanismCardProps) {
             </Badge>
             <Badge variant="outline" className={levelStyle}>
               {mechanism.level}
+            </Badge>
+            <Badge variant="outline" className={`text-xs border ${tierStyle}`}>
+              {tier}
             </Badge>
           </div>
           <button
@@ -81,6 +94,9 @@ export function MechanismCard({ mechanism, index }: MechanismCardProps) {
 
       {expanded && (
         <CardContent className="pt-0 space-y-4">
+          {/* Evidence chain */}
+          <EvidenceChain mechanismId={mechanism.id} />
+
           {/* Genes */}
           {mechanism.genes.length > 0 && (
             <div>

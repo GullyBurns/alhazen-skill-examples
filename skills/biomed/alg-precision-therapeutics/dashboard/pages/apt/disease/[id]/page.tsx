@@ -1,15 +1,14 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, use, useRef } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, RefreshCw, ExternalLink } from 'lucide-react';
+import { ArrowLeft, RefreshCw, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { MechanismCard, Mechanism } from '@/components/alg-precision-therapeutics/mechanism-card';
-import { PhenomeTable, PhenomeTier } from '@/components/alg-precision-therapeutics/phenome-table';
 import { GapsPanel } from '@/components/alg-precision-therapeutics/gaps-panel';
+import CausalChainFlow from '@/components/alg-precision-therapeutics/causal-chain-flow';
+import EvidenceSearch from '@/components/alg-precision-therapeutics/evidence-search';
 
 interface Gene {
   id: string;
@@ -39,38 +38,69 @@ interface GapData {
   summary: { undrugged_count: number; unexplained_phenotype_count: number; orphan_gene_count: number };
 }
 
+function Section({
+  title,
+  children,
+  defaultOpen = true,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="mb-6 border border-slate-700 rounded-lg overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between px-4 py-3 bg-slate-800/70 hover:bg-slate-800 transition-colors text-left"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="text-sm font-semibold text-slate-200">{title}</span>
+        {open ? (
+          <ChevronUp className="w-4 h-4 text-slate-400" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-slate-400" />
+        )}
+      </button>
+      {open && <div className="px-4 py-4">{children}</div>}
+    </section>
+  );
+}
+
 export default function DiseaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const mondoId = decodeURIComponent(id);
 
   const [disease, setDisease] = useState<Disease | null>(null);
   const [mechanisms, setMechanisms] = useState<Mechanism[]>([]);
-  const [phenome, setPhenome] = useState<PhenomeTier[]>([]);
   const [genes, setGenes] = useState<Gene[]>([]);
   const [gaps, setGaps] = useState<GapData | null>(null);
   const [loading, setLoading] = useState(true);
   const [gapsLoading, setGapsLoading] = useState(false);
+  const [gapsLoaded, setGapsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedMechId, setSelectedMechId] = useState<string | undefined>(undefined);
+
+  const mechDetailRef = useRef<HTMLDivElement>(null);
 
   async function fetchCore() {
     setLoading(true);
     setError(null);
     try {
       const qs = `?mondo_id=${encodeURIComponent(mondoId)}`;
-      const [diseaseRes, mechRes, phenomeRes, genesRes] = await Promise.all([
+      const [diseaseRes, mechRes, genesRes] = await Promise.all([
         fetch(`/api/alg-precision-therapeutics/disease${qs}`),
         fetch(`/api/alg-precision-therapeutics/mechanisms${qs}`),
-        fetch(`/api/alg-precision-therapeutics/phenome${qs}`),
         fetch(`/api/alg-precision-therapeutics/genes${qs}`),
       ]);
 
-      const [diseaseData, mechData, phenomeData, genesData] = await Promise.all([
-        diseaseRes.json(), mechRes.json(), phenomeRes.json(), genesRes.json(),
+      const [diseaseData, mechData, genesData] = await Promise.all([
+        diseaseRes.json(),
+        mechRes.json(),
+        genesRes.json(),
       ]);
 
       setDisease(diseaseData.disease ?? null);
       setMechanisms(mechData.mechanisms ?? []);
-      setPhenome(phenomeData.phenome ?? []);
       setGenes([...(genesData.causal_genes ?? []), ...(genesData.associated_genes ?? [])]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
@@ -80,6 +110,7 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
   }
 
   async function fetchGaps() {
+    if (gapsLoaded) return;
     setGapsLoading(true);
     try {
       const res = await fetch(
@@ -87,6 +118,7 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
       );
       const data = await res.json();
       setGaps(data);
+      setGapsLoaded(true);
     } catch {
       // gaps are non-critical
     } finally {
@@ -94,40 +126,58 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
-  useEffect(() => { fetchCore(); }, [mondoId]);
+  useEffect(() => {
+    fetchCore();
+  }, [mondoId]);
 
-  const handleTabChange = (tab: string) => {
-    if (tab === 'gaps' && !gaps) fetchGaps();
+  const handleSelectMechanism = (mechId: string) => {
+    setSelectedMechId(mechId === selectedMechId ? undefined : mechId);
+    // Scroll to detail section after state update
+    setTimeout(() => {
+      mechDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
   };
 
-  const omimUrl = disease?.omim_id
-    ? `https://omim.org/entry/${disease.omim_id}`
-    : null;
+  const omimUrl = disease?.omim_id ? `https://omim.org/entry/${disease.omim_id}` : null;
 
-  // Derived stats
   const totalStrategies = mechanisms.reduce((s, m) => s + m.therapeutic_strategies.length, 0);
-  const totalPhenotypes = phenome.reduce((s, t) => s + t.count, 0);
+  const selectedMech = mechanisms.find((m) => m.id === selectedMechId);
 
   const statCards = [
-    { label: 'Mechanisms', value: mechanisms.length, colorText: 'text-teal-400',   colorBg: 'bg-teal-500/10',   colorBorder: 'border-teal-500/20' },
-    { label: 'Phenotypes', value: totalPhenotypes,    colorText: 'text-orange-400', colorBg: 'bg-orange-500/10', colorBorder: 'border-orange-500/20' },
-    { label: 'Genes',      value: genes.length,       colorText: 'text-blue-400',   colorBg: 'bg-blue-500/10',   colorBorder: 'border-blue-500/20' },
-    { label: 'Strategies', value: totalStrategies,    colorText: 'text-violet-400', colorBg: 'bg-violet-500/10', colorBorder: 'border-violet-500/20' },
+    {
+      label: 'Mechanisms',
+      value: mechanisms.length,
+      colorText: 'text-teal-400',
+      colorBg: 'bg-teal-500/10',
+      colorBorder: 'border-teal-500/20',
+    },
+    {
+      label: 'Phenotypes',
+      value: disease?.phenotype_count ?? 0,
+      colorText: 'text-orange-400',
+      colorBg: 'bg-orange-500/10',
+      colorBorder: 'border-orange-500/20',
+    },
+    {
+      label: 'Genes',
+      value: genes.length,
+      colorText: 'text-blue-400',
+      colorBg: 'bg-blue-500/10',
+      colorBorder: 'border-blue-500/20',
+    },
+    {
+      label: 'Strategies',
+      value: totalStrategies,
+      colorText: 'text-violet-400',
+      colorBg: 'bg-violet-500/10',
+      colorBorder: 'border-violet-500/20',
+    },
   ];
-
-  // Mechanism type breakdown for chart
-  const mechTypeData = Object.entries(
-    mechanisms.reduce((acc, m) => {
-      acc[m.type] = (acc[m.type] ?? 0) + 1;
-      return acc;
-    }, {} as Record<string, number>)
-  )
-    .map(([type, count]) => ({ type, count }))
-    .sort((a, b) => b.count - a.count);
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
+      {/* Header */}
+      <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
@@ -155,7 +205,10 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
                       </a>
                     )}
                     {disease.inheritance_pattern && (
-                      <Badge variant="outline" className="text-xs border-slate-500/30 text-slate-400">
+                      <Badge
+                        variant="outline"
+                        className="text-xs border-slate-500/30 text-slate-400"
+                      >
                         {disease.inheritance_pattern}
                       </Badge>
                     )}
@@ -177,7 +230,7 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-6 max-w-4xl">
+      <main className="container mx-auto px-4 py-6 max-w-5xl">
         {error && (
           <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-6">
             <strong>Error:</strong> {error}
@@ -190,9 +243,9 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
           </div>
         ) : (
           <>
-            {/* Summary stat cards */}
+            {/* Section 1: Disease Header — stat cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              {statCards.map(stat => (
+              {statCards.map((stat) => (
                 <div
                   key={stat.label}
                   className={`rounded-lg border ${stat.colorBorder} ${stat.colorBg} p-4`}
@@ -205,156 +258,183 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
               ))}
             </div>
 
-            <Tabs defaultValue="mechanisms" onValueChange={handleTabChange}>
-              <TabsList className="mb-6">
-                <TabsTrigger value="mechanisms">
-                  Mechanisms ({mechanisms.length})
-                </TabsTrigger>
-                <TabsTrigger value="phenome">
-                  Phenome ({disease?.phenotype_count ?? 0})
-                </TabsTrigger>
-                <TabsTrigger value="genes">
-                  Genes ({genes.length})
-                </TabsTrigger>
-                <TabsTrigger value="gaps">
-                  Gaps
-                </TabsTrigger>
-              </TabsList>
+            {/* Section 2: Mechanism Cascade */}
+            <Section title={`Section 2 — Mechanism Cascade (${mechanisms.length})`}>
+              <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+                {/* Left: causal chain flow */}
+                <div>
+                  {mechanisms.length === 0 ? (
+                    <p className="text-sm text-slate-500">
+                      No mechanisms yet. Run sensemaking to add them.
+                    </p>
+                  ) : (
+                    <CausalChainFlow
+                      mechanisms={mechanisms}
+                      onSelectMechanism={handleSelectMechanism}
+                      selectedId={selectedMechId}
+                    />
+                  )}
+                </div>
 
-              {/* Mechanisms tab */}
-              <TabsContent value="mechanisms" className="space-y-4">
-                {mechanisms.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-8 text-center">
-                    No mechanisms yet. Run sensemaking to add them.
-                  </p>
-                ) : (
-                  <>
-                    {/* Mechanism type breakdown */}
-                    {mechTypeData.length > 1 && (
-                      <div className="rounded-lg border border-border/50 bg-card/30 p-4">
-                        <p className="text-xs font-medium text-muted-foreground mb-3">Mechanism Type Breakdown</p>
-                        <ResponsiveContainer width="100%" height={mechTypeData.length * 30 + 8}>
-                          <BarChart
-                            data={mechTypeData}
-                            layout="vertical"
-                            margin={{ top: 0, right: 32, bottom: 0, left: 8 }}
-                          >
-                            <XAxis
-                              type="number"
-                              tick={{ fontSize: 11, fill: '#94a3b8' }}
-                              tickLine={false}
-                              axisLine={false}
-                              allowDecimals={false}
-                            />
-                            <YAxis
-                              type="category"
-                              dataKey="type"
-                              tick={{ fontSize: 11, fill: '#94a3b8' }}
-                              width={172}
-                              axisLine={false}
-                              tickLine={false}
-                            />
-                            <Tooltip
-                              contentStyle={{
-                                background: 'hsl(222.2 84% 4.9%)',
-                                border: '1px solid hsl(217.2 32.6% 17.5%)',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                              }}
-                              labelStyle={{ color: '#e2e8f0' }}
-                              itemStyle={{ color: '#94a3b8' }}
-                              cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                            />
-                            <Bar dataKey="count" fill="#2dd4bf" fillOpacity={0.75} radius={[0, 4, 4, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-                    {mechanisms.map((m, i) => (
-                      <MechanismCard key={m.id} mechanism={m} index={i} />
-                    ))}
-                  </>
-                )}
-              </TabsContent>
+                {/* Right: selected mechanism card */}
+                <div ref={mechDetailRef}>
+                  {selectedMech ? (
+                    <div>
+                      <p className="text-xs text-slate-500 mb-2">
+                        Selected mechanism detail
+                      </p>
+                      <MechanismCard
+                        mechanism={selectedMech}
+                        index={mechanisms.findIndex((m) => m.id === selectedMech.id)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-full min-h-32 border border-dashed border-slate-700 rounded-lg">
+                      <p className="text-sm text-slate-500">
+                        Click a mechanism to see details
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Section>
 
-              {/* Phenome tab */}
-              <TabsContent value="phenome">
-                {phenome.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-8 text-center">No phenotypes ingested.</p>
-                ) : (
-                  <PhenomeTable phenome={phenome} total={disease?.phenotype_count ?? 0} />
-                )}
-              </TabsContent>
+            {/* Section 3: Therapeutic Landscape */}
+            <Section title={`Section 3 — Therapeutic Landscape`}>
+              <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+                {/* Genes table */}
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                    Causal &amp; Associated Genes
+                  </h3>
+                  {genes.length === 0 ? (
+                    <p className="text-sm text-slate-500">No genes ingested.</p>
+                  ) : (
+                    <div className="rounded-lg border border-border/50 overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/40">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">
+                              Symbol
+                            </th>
+                            <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">
+                              HGNC
+                            </th>
+                            <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">
+                              Association
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {genes.map((g) => (
+                            <tr
+                              key={g.id}
+                              className="border-t border-border/30 hover:bg-muted/20"
+                            >
+                              <td className="px-3 py-2 font-mono font-semibold text-sm">
+                                {g.symbol}
+                              </td>
+                              <td className="px-3 py-2 text-muted-foreground text-xs">
+                                <a
+                                  href={`https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/${g.hgnc_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-cyan-400 font-semibold underline underline-offset-2 hover:text-blue-400 transition-colors flex items-center gap-1"
+                                >
+                                  {g.hgnc_id}
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              </td>
+                              <td className="px-3 py-2">
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    g.association_type === 'causal'
+                                      ? 'border-red-500/30 text-red-300 bg-red-500/10 text-xs'
+                                      : 'text-xs'
+                                  }
+                                >
+                                  {g.association_type}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
 
-              {/* Genes tab */}
-              <TabsContent value="genes">
-                {genes.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-8 text-center">No genes ingested.</p>
-                ) : (
-                  <div className="rounded-lg border border-border/50 overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/40">
-                        <tr>
-                          <th className="text-left px-4 py-3 font-medium text-muted-foreground">Symbol</th>
-                          <th className="text-left px-4 py-3 font-medium text-muted-foreground">HGNC ID</th>
-                          <th className="text-left px-4 py-3 font-medium text-muted-foreground">Association</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {genes.map((g) => (
-                          <tr key={g.id} className="border-t border-border/30 hover:bg-muted/20">
-                            <td className="px-4 py-3 font-mono font-semibold">{g.symbol}</td>
-                            <td className="px-4 py-3 text-muted-foreground">
-                              <a
-                                href={`https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/${g.hgnc_id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="hover:text-primary transition-colors flex items-center gap-1"
-                              >
-                                {g.hgnc_id}
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
-                            </td>
-                            <td className="px-4 py-3">
+                {/* Therapeutic strategies summary */}
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                    Therapeutic Strategies
+                  </h3>
+                  {totalStrategies === 0 ? (
+                    <p className="text-sm text-slate-500">No strategies recorded yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {mechanisms
+                        .filter((m) => m.therapeutic_strategies.length > 0)
+                        .map((m) =>
+                          m.therapeutic_strategies.map((s) => (
+                            <div
+                              key={s.id}
+                              className="flex items-start gap-2 text-xs p-2 rounded bg-muted/40 border border-border/30"
+                            >
                               <Badge
                                 variant="outline"
-                                className={
-                                  g.association_type === 'causal'
-                                    ? 'border-red-500/30 text-red-300 bg-red-500/10 text-xs'
-                                    : 'text-xs'
-                                }
+                                className="text-xs shrink-0 mt-0.5 border-teal-500/30 text-teal-400 bg-teal-500/10"
                               >
-                                {g.association_type}
+                                {s.approach}
                               </Badge>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </TabsContent>
+                              <p className="text-foreground/70 leading-relaxed">{s.name}</p>
+                            </div>
+                          ))
+                        )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Section>
 
-              {/* Gaps tab */}
-              <TabsContent value="gaps">
-                {gapsLoading ? (
-                  <div className="flex items-center justify-center py-16">
-                    <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
-                  </div>
-                ) : gaps ? (
-                  <GapsPanel
-                    undrugged={gaps.undrugged_mechanisms}
-                    unexplained={gaps.unexplained_phenotypes}
-                    orphanGenes={gaps.orphan_genes}
-                    summary={gaps.summary}
-                  />
-                ) : (
-                  <p className="text-sm text-muted-foreground py-8 text-center">
-                    Click this tab to load gap analysis.
+            {/* Section 4: Literature Search */}
+            <Section title="Section 4 — Literature Search">
+              <EvidenceSearch mondoId={mondoId} />
+            </Section>
+
+            {/* Section 5: Gaps */}
+            <Section
+              title="Section 5 — Knowledge Gaps"
+              defaultOpen={false}
+            >
+              {gapsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : gaps ? (
+                <GapsPanel
+                  undrugged={gaps.undrugged_mechanisms}
+                  unexplained={gaps.unexplained_phenotypes}
+                  orphanGenes={gaps.orphan_genes}
+                  summary={gaps.summary}
+                />
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-sm text-slate-500 mb-3">
+                    Load gap analysis to identify undrugged mechanisms and unexplained phenotypes.
                   </p>
-                )}
-              </TabsContent>
-            </Tabs>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchGaps}
+                    className="border-border/50 hover:border-amber-500/50 hover:bg-amber-500/10"
+                  >
+                    Load Gap Analysis
+                  </Button>
+                </div>
+              )}
+            </Section>
           </>
         )}
       </main>

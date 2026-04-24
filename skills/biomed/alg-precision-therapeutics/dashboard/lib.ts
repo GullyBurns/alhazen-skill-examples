@@ -43,3 +43,13 @@ export async function showGenes(mondoId: string) {
 export async function showGaps(mondoId: string) {
   return runApt(['show-gaps', '--mondo-id', mondoId]);
 }
+
+export async function showEvidence(mechanismId: string) {
+  return runApt(['show-evidence', '--mechanism-id', mechanismId]);
+}
+
+export async function searchEvidence(query: string, mondoId: string) {
+  const args = ['search-evidence', '--query', query];
+  if (mondoId) args.push('--mondo-id', mondoId);
+  return runApt(args);
+}
