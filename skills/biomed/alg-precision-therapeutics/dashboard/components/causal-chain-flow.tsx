@@ -20,13 +20,13 @@ interface CausalChainFlowProps {
   selectedId?: string;
 }
 
-const tierColor = (tier?: string) => {
+const tierColor = (tier?: string | null) => {
   if (tier === 'ESTABLISHED') return 'border-green-600 bg-green-950';
   if (tier === 'PROVISIONAL') return 'border-amber-600 bg-amber-950';
   return 'border-blue-600 bg-blue-950';
 };
 
-const tierBadge = (tier?: string) => {
+const tierBadge = (tier?: string | null) => {
   if (tier === 'ESTABLISHED') return 'bg-green-900 text-green-300';
   if (tier === 'PROVISIONAL') return 'bg-amber-900 text-amber-300';
   return 'bg-blue-900 text-blue-300';
