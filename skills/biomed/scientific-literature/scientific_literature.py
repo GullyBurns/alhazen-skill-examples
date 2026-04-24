@@ -165,6 +165,10 @@ NCBI_API_KEY = os.getenv("NCBI_API_KEY", "")
 OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY", "")
 VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
 
+APT_SECTIONS_COLLECTION = "apt-sections"
+APT_NOTES_COLLECTION = "apt-notes"
+VECTOR_DIM_SECTIONS = 1024  # voyage-3 output dimension
+
 EPMC_API_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 NCBI_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 OPENALEX_BASE = "https://api.openalex.org"
@@ -1610,6 +1614,172 @@ def cmd_plot_clusters(args):
 
 
 # =============================================================================
+# APT SECTION EMBEDDING COMMANDS
+# =============================================================================
+
+def cmd_embed_sections(args):
+    """Fetch scilit-section fragments for a paper, embed them, upsert into apt-sections Qdrant collection."""
+    try:
+        from skillful_alhazen.utils.embeddings import VOYAGE_BATCH_SIZE, embed_texts
+        from skillful_alhazen.utils.vector_store import get_qdrant_client
+        from qdrant_client import models as qdrant_models
+    except ImportError as e:
+        print(json.dumps({"success": False, "error": f"Missing dependency: {e}"}))
+        sys.exit(1)
+
+    if not VOYAGE_API_KEY:
+        print(json.dumps({"success": False, "error": "VOYAGE_API_KEY not set"}))
+        sys.exit(1)
+
+    paper_id = args.paper_id
+    collection_name = args.collection
+    mondo_id = args.tag_mondo_id or ""
+
+    print(f"Fetching sections for paper {paper_id}...", file=sys.stderr)
+
+    query = (
+        f'match '
+        f'$paper isa scilit-paper, has id "{paper_id}"; '
+        f'(artifact: $artifact, subject: $paper) isa representation; '
+        f'$section isa scilit-section; '
+        f'(whole: $artifact, part: $section) isa fragmentation; '
+        f'$section has id $sid; '
+        f'$section has content $content; '
+        f'fetch {{ "section_id": $sid, "content": $content }};'
+    )
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            results = list(tx.query(query).resolve())
+
+    if not results:
+        print(json.dumps({
+            "success": False,
+            "error": f"No scilit-section fragments found for paper {paper_id}",
+            "paper_id": paper_id,
+        }))
+        sys.exit(1)
+
+    section_count = len(results)
+    print(f"Found {section_count} sections, embedding...", file=sys.stderr)
+
+    texts = [r["content"] for r in results]
+    section_ids = [r["section_id"] for r in results]
+
+    all_vectors = []
+    for i in range(0, len(texts), VOYAGE_BATCH_SIZE):
+        batch_end = min(i + VOYAGE_BATCH_SIZE, len(texts))
+        print(f"  Embedding {i + 1}-{batch_end} / {len(texts)}...", file=sys.stderr)
+        batch_vectors = embed_texts(texts[i:batch_end], input_type="document")
+        all_vectors.extend(batch_vectors)
+
+    qdrant = get_qdrant_client()
+
+    # Ensure collection exists
+    existing_collections = [c.name for c in qdrant.get_collections().collections]
+    if collection_name not in existing_collections:
+        print(f"Creating Qdrant collection '{collection_name}'...", file=sys.stderr)
+        qdrant.create_collection(
+            collection_name=collection_name,
+            vectors_config=qdrant_models.VectorParams(
+                size=VECTOR_DIM_SECTIONS,
+                distance=qdrant_models.Distance.COSINE,
+            ),
+        )
+
+    # Upsert points
+    points = []
+    for section_id, vector, content in zip(section_ids, all_vectors, texts):
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, section_id))
+        points.append(qdrant_models.PointStruct(
+            id=point_id,
+            vector=vector,
+            payload={
+                "section_id": section_id,
+                "paper_id": paper_id,
+                "mondo_id": mondo_id,
+                "content_preview": content[:200] if content else "",
+            },
+        ))
+
+    qdrant.upsert(collection_name=collection_name, points=points)
+    print(f"Upserted {len(points)} section vectors into '{collection_name}'", file=sys.stderr)
+
+    print(json.dumps({
+        "success": True,
+        "paper_id": paper_id,
+        "collection": collection_name,
+        "mondo_id": mondo_id,
+        "section_count": section_count,
+        "embedded_count": len(points),
+    }, indent=2))
+
+
+def cmd_search_sections(args):
+    """Semantic search over scilit-section fragments in the apt-sections Qdrant collection."""
+    try:
+        from skillful_alhazen.utils.embeddings import embed_texts
+        from skillful_alhazen.utils.vector_store import get_qdrant_client
+        from qdrant_client import models as qdrant_models
+    except ImportError as e:
+        print(json.dumps({"success": False, "error": f"Missing dependency: {e}"}))
+        sys.exit(1)
+
+    if not VOYAGE_API_KEY:
+        print(json.dumps({"success": False, "error": "VOYAGE_API_KEY not set"}))
+        sys.exit(1)
+
+    query_text = args.query
+    collection_name = getattr(args, "collection", APT_SECTIONS_COLLECTION)
+    mondo_id = args.mondo_id or ""
+    top_k = args.top_k
+
+    print(f"Embedding query: {query_text}", file=sys.stderr)
+    query_vector = embed_texts([query_text], input_type="query")[0]
+
+    qdrant = get_qdrant_client()
+
+    # Build optional mondo_id filter
+    search_filter = None
+    if mondo_id:
+        search_filter = qdrant_models.Filter(
+            must=[
+                qdrant_models.FieldCondition(
+                    key="mondo_id",
+                    match=qdrant_models.MatchValue(value=mondo_id),
+                )
+            ]
+        )
+
+    hits = qdrant.search(
+        collection_name=collection_name,
+        query_vector=query_vector,
+        limit=top_k,
+        query_filter=search_filter,
+        with_payload=True,
+    )
+
+    results = []
+    for hit in hits:
+        payload = hit.payload or {}
+        results.append({
+            "section_id": payload.get("section_id", ""),
+            "paper_id": payload.get("paper_id", ""),
+            "mondo_id": payload.get("mondo_id", ""),
+            "score": hit.score,
+            "content_preview": payload.get("content_preview", ""),
+        })
+
+    print(json.dumps({
+        "success": True,
+        "query": query_text,
+        "collection": collection_name,
+        "mondo_id": mondo_id,
+        "results": results,
+    }, indent=2))
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -1700,13 +1870,42 @@ def main():
     p.add_argument("--output", default="clusters.png", help="Output PNG path")
     p.add_argument("--labels", nargs="*", help="Theme labels: 0:theme-a 1:theme-b ...")
 
+    # embed-sections
+    p_embed_sections = subparsers.add_parser(
+        "embed-sections",
+        help="Embed scilit-section fragments for a paper into the apt-sections Qdrant collection",
+    )
+    p_embed_sections.add_argument("--paper-id", required=True,
+        help="scilit-paper TypeDB ID (e.g. scilit-paper-abc123)")
+    p_embed_sections.add_argument("--collection", default=APT_SECTIONS_COLLECTION,
+        help=f"Qdrant collection name (default: {APT_SECTIONS_COLLECTION})")
+    p_embed_sections.add_argument("--tag-mondo-id", default="",
+        help="MONDO ID to tag all sections with (e.g. MONDO:0100135)")
+    p_embed_sections.set_defaults(func=cmd_embed_sections)
+
+    # search-sections
+    p_search_sections = subparsers.add_parser(
+        "search-sections",
+        help="Semantic search over scilit-section fragments in the apt-sections Qdrant collection",
+    )
+    p_search_sections.add_argument("--query", required=True,
+        help="Natural language query")
+    p_search_sections.add_argument("--collection", default=APT_SECTIONS_COLLECTION,
+        help=f"Qdrant collection name (default: {APT_SECTIONS_COLLECTION})")
+    p_search_sections.add_argument("--mondo-id", default="",
+        help="Filter results to sections tagged with this MONDO ID")
+    p_search_sections.add_argument("--top-k", type=int, default=10,
+        help="Number of results to return (default: 10)")
+    p_search_sections.set_defaults(func=cmd_search_sections)
+
     args = parser.parse_args()
 
     if not args.command:
         parser.print_help()
         sys.exit(1)
 
-    SEMANTIC_COMMANDS = {"embed", "search-semantic", "cluster", "plot-clusters"}
+    SEMANTIC_COMMANDS = {"embed", "search-semantic", "cluster", "plot-clusters",
+                         "embed-sections", "search-sections"}
     NON_DB_COMMANDS = {"count"} | SEMANTIC_COMMANDS
 
     if args.command not in NON_DB_COMMANDS:
@@ -1731,6 +1930,8 @@ def main():
         "search-semantic": cmd_search_semantic,
         "cluster": cmd_cluster,
         "plot-clusters": cmd_plot_clusters,
+        "embed-sections": cmd_embed_sections,
+        "search-sections": cmd_search_sections,
     }
 
     try:
