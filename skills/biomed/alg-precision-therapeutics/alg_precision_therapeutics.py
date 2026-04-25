@@ -2764,7 +2764,11 @@ def _insert_minimal_paper(pmid: str) -> dict:
 
 
 def cmd_add_evidence(args):
-    """Add literature evidence for a mechanism (PMID + snippet + support classification)."""
+    """Add literature evidence for a mechanism (PMID + snippet + support classification).
+
+    Creates an apt-evidenceitem (domain layer) linked to the mechanism via apt-evidence,
+    and a scilit-extraction-note (literature layer) attached to the evidenceitem via aboutness.
+    """
     timestamp = get_timestamp()
 
     # 1. Validate mechanism
@@ -2786,24 +2790,63 @@ def cmd_add_evidence(args):
 
     paper_id = paper["id"]
 
-    # 3. Create scilit-extraction-note (content only — no apt attrs, scilit schema)
-    extract_id = generate_id("scilit-extract")
-    snippet_escaped = escape_string(args.snippet)
+    # 3. Create apt-evidenceitem (domain layer)
+    ev_id = generate_id("apt-evidenceitem")
     explanation = escape_string(getattr(args, "explanation", "") or "")
-    extract_content = args.snippet
+    ref = f"PMID:{args.pmid}"
+    paper_title = paper.get("name", "")
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            q = (f'insert $e isa apt-evidenceitem,'
+                 f' has id "{ev_id}",'
+                 f' has name "Evidence: {escape_string(ref)}",'
+                 f' has apt-reference "{escape_string(ref)}",'
+                 f' has apt-support-type "{escape_string(args.support_type)}",'
+                 f' has apt-evidence-source "{escape_string(args.evidence_source)}",'
+                 f' has created-at {timestamp}')
+            if paper_title:
+                q += f', has apt-reference-title "{escape_string(paper_title[:500])}"'
+            if args.snippet:
+                q += f', has apt-snippet "{escape_string(args.snippet[:2000])}"'
+            if explanation:
+                q += f', has apt-explanation "{explanation}"'
+            q += ";"
+            tx.query(q).resolve()
+            tx.commit()
+
+        # Link evidenceitem to mechanism via apt-evidence
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $m isa apt-mechanism, has id "{escape_string(args.mechanism_id)}";
+                $e isa apt-evidenceitem, has id "{ev_id}";
+            insert (subject: $m, item: $e) isa apt-evidence;''').resolve()
+            tx.commit()
+
+    # 4. Create scilit-extraction-note (literature layer) and attach to evidenceitem
+    extract_id = generate_id("scilit-extract")
+    extract_content = args.snippet or ""
     if explanation:
-        extract_content += f"\n\nExplanation: {args.explanation}"
+        extract_content += f"\n\nExplanation: {getattr(args, 'explanation', '') or ''}"
 
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(f'''insert $n isa scilit-extraction-note,
                 has id "{extract_id}",
-                has name "Evidence: {escape_string(args.snippet[:60])}",
+                has name "Evidence: {escape_string((args.snippet or '')[:60])}",
                 has content "{escape_string(extract_content)}",
                 has created-at {timestamp};''').resolve()
             tx.commit()
 
-        # Link extraction note to paper
+        # Attach extraction note to evidenceitem (aboutness: apt-evidenceitem is subject)
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $n isa scilit-extraction-note, has id "{extract_id}";
+                $e isa apt-evidenceitem, has id "{ev_id}";
+            insert (note: $n, subject: $e) isa aboutness;''').resolve()
+            tx.commit()
+
+        # Also attach extraction note to paper via aboutness
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(f'''match
                 $n isa scilit-extraction-note, has id "{extract_id}";
@@ -2811,47 +2854,16 @@ def cmd_add_evidence(args):
             insert (note: $n, subject: $p) isa aboutness;''').resolve()
             tx.commit()
 
-    # 4. Create apt-mechanism-claim-note
-    claim_id = generate_id("apt-claim-note")
-    claim_name = f"Claim: {mechanism_type} - {args.support_type}"
-    with get_driver() as driver:
-        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-            tx.query(f'''insert $n isa apt-mechanism-claim-note,
-                has id "{claim_id}",
-                has name "{escape_string(claim_name)}",
-                has content "{snippet_escaped}",
-                has apt-mechanism-type "{escape_string(mechanism_type)}",
-                has apt-support-type "{escape_string(args.support_type)}",
-                has apt-evidence-source "{escape_string(args.evidence_source)}",
-                has created-at {timestamp};''').resolve()
-            tx.commit()
-
-        # Link claim note to mechanism
-        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-            tx.query(f'''match
-                $n isa apt-mechanism-claim-note, has id "{claim_id}";
-                $m isa apt-mechanism, has id "{escape_string(args.mechanism_id)}";
-            insert (note: $n, subject: $m) isa aboutness;''').resolve()
-            tx.commit()
-
-        # 5. Link claim -> extraction via evidence-chain
-        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-            tx.query(f'''match
-                $claim isa apt-mechanism-claim-note, has id "{claim_id}";
-                $extract isa scilit-extraction-note, has id "{extract_id}";
-            insert (claim: $claim, evidence: $extract) isa evidence-chain;''').resolve()
-            tx.commit()
-
-    # 6. Optionally embed the claim note
+    # 5. Optionally embed the evidenceitem content
     embedded = False
     if VOYAGE_API_KEY:
         try:
             client = NoteEmbeddingClient()
             embedded = client.embed_note(
-                note_id=claim_id,
-                content=args.snippet,
+                note_id=ev_id,
+                content=args.snippet or "",
                 metadata={
-                    "note_type": "apt-mechanism-claim-note",
+                    "note_type": "apt-evidenceitem",
                     "mechanism_id": args.mechanism_id,
                     "mondo_id": mondo_id,
                     "support_type": args.support_type,
@@ -2862,7 +2874,7 @@ def cmd_add_evidence(args):
 
     print(json.dumps({
         "success": True,
-        "claim_note_id": claim_id,
+        "evidenceitem_id": ev_id,
         "extraction_note_id": extract_id,
         "paper_id": paper_id,
         "pmid": str(args.pmid),
@@ -2873,68 +2885,80 @@ def cmd_add_evidence(args):
 
 
 def cmd_show_evidence(args):
-    """Show all evidence claims for a mechanism with linked papers."""
+    """Show all evidence items for a mechanism with linked papers.
+
+    Traversal: apt-mechanism <- apt-evidence:subject <- apt-evidenceitem
+               <- aboutness:subject <- scilit-extraction-note (if present)
+    """
     mechanism_id = args.mechanism_id
 
     with get_driver() as driver:
-        # Fetch all claim notes about the mechanism
+        # Fetch all evidenceitems linked to the mechanism via apt-evidence
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            claim_rows = list(tx.query(f'''
+            ev_rows = list(tx.query(f'''
                 match
                     $mech isa apt-mechanism, has id "{escape_string(mechanism_id)}";
-                    $claim isa apt-mechanism-claim-note;
-                    (note: $claim, subject: $mech) isa aboutness;
-                    $claim has id $cid, has content $ccontent, has apt-support-type $csup,
-                           has apt-evidence-source $csrc;
+                    $ev isa apt-evidenceitem;
+                    (subject: $mech, item: $ev) isa apt-evidence;
+                    $ev has id $eid, has apt-support-type $esup;
                 fetch {{
-                    "claim_id": $cid,
-                    "content": $ccontent,
-                    "support_type": $csup,
-                    "evidence_source": $csrc
+                    "ev_id": $eid,
+                    "support_type": $esup
                 }};
             ''').resolve())
 
     evidence_items = []
-    for claim in claim_rows:
-        claim_id = claim.get("claim_id", "")
-        snippet = (claim.get("content") or "")[:300]
+    for row in ev_rows:
+        ev_id = row.get("ev_id", "")
+        support_type = row.get("support_type", "")
 
-        # Fetch linked extraction notes via evidence-chain
-        extraction_content = ""
+        # Fetch full attributes of evidenceitem
+        with get_driver() as driver:
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                attr_rows = list(tx.query(f'''
+                    match $ev isa apt-evidenceitem, has id "{escape_string(ev_id)}";
+                    fetch {{
+                        "reference": $ev.apt-reference,
+                        "reference_title": $ev.apt-reference-title,
+                        "evidence_source": $ev.apt-evidence-source,
+                        "snippet": $ev.apt-snippet,
+                        "explanation": $ev.apt-explanation
+                    }};
+                ''').resolve())
+        attrs = attr_rows[0] if attr_rows else {}
+
+        # Find scilit-extraction-note about this evidenceitem
+        paper_id = ""
         paper_title = ""
         pmid = ""
-        paper_id = ""
 
         with get_driver() as driver:
             with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
                 extract_rows = list(tx.query(f'''
                     match
-                        $claim isa apt-mechanism-claim-note, has id "{escape_string(claim_id)}";
-                        $extract isa note;
-                        (claim: $claim, evidence: $extract) isa evidence-chain;
-                        $extract has id $eid, has content $econtent;
-                    fetch {{ "extract_id": $eid, "content": $econtent }};
+                        $ev isa apt-evidenceitem, has id "{escape_string(ev_id)}";
+                        $note isa scilit-extraction-note;
+                        (note: $note, subject: $ev) isa aboutness;
+                        $note has id $nid;
+                    fetch {{ "note_id": $nid }};
                 ''').resolve())
 
             for ext in extract_rows:
-                extraction_content = (ext.get("content") or "")[:500]
-                ext_id = ext.get("extract_id", "")
-
-                # Find linked paper
+                ext_id = ext.get("note_id", "")
+                # Find scilit-paper linked to extraction note
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx2:
                     paper_rows = list(tx2.query(f'''
                         match
-                            $extract isa note, has id "{escape_string(ext_id)}";
+                            $note isa scilit-extraction-note, has id "{escape_string(ext_id)}";
                             $paper isa scilit-paper;
-                            (note: $extract, subject: $paper) isa aboutness;
+                            (note: $note, subject: $paper) isa aboutness;
                             $paper has id $pid, has name $title;
                         fetch {{ "paper_id": $pid, "title": $title }};
                     ''').resolve())
                 if paper_rows:
                     paper_title = paper_rows[0].get("title", "")
                     paper_id = paper_rows[0].get("paper_id", "")
-
-                # Try to get PMID separately (optional attribute)
+                # Try PMID
                 if paper_id:
                     with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx3:
                         pmid_rows = list(tx3.query(f'''
@@ -2944,18 +2968,19 @@ def cmd_show_evidence(args):
                         ''').resolve())
                     if pmid_rows:
                         pmid = pmid_rows[0].get("pmid", "")
-
                 break  # use first extraction note
 
         evidence_items.append({
-            "claim_id": claim_id,
-            "support_type": claim.get("support_type", ""),
-            "evidence_source": claim.get("evidence_source", ""),
-            "snippet": snippet,
-            "extraction_content": extraction_content,
-            "paper_title": paper_title,
+            "evidenceitem_id": ev_id,
+            "support_type": support_type,
+            "evidence_source": attrs.get("evidence_source", ""),
+            "reference": attrs.get("reference", ""),
+            "reference_title": attrs.get("reference_title", "") or paper_title,
+            "snippet": (attrs.get("snippet") or "")[:400],
+            "explanation": (attrs.get("explanation") or "")[:400],
             "paper_id": paper_id,
             "pmid": pmid,
+            "has_fulltext": bool(paper_id),
         })
 
     print(json.dumps({
