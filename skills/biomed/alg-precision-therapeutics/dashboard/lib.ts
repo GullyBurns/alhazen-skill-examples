@@ -48,6 +48,10 @@ export async function showEvidence(mechanismId: string) {
   return runApt(['show-evidence', '--mechanism-id', mechanismId]);
 }
 
+export async function showTreatments(mondoId: string) {
+  return runApt(['show-treatments', '--mondo-id', mondoId]);
+}
+
 export async function searchEvidence(query: string, mondoId: string) {
   const args = ['search-evidence', '--query', query];
   if (mondoId) args.push('--mondo-id', mondoId);
