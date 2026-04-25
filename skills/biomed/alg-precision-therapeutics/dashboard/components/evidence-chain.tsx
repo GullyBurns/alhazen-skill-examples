@@ -1,15 +1,17 @@
 'use client';
 import { useState } from 'react';
 
-interface ClaimNote {
-  claim_id: string;
+interface EvidenceItem {
+  evidenceitem_id: string;
   support_type: string;
   evidence_source: string;
+  reference: string;
+  reference_title: string;
   snippet: string;
-  extraction_content: string;
-  paper_title: string;
+  explanation: string;
   paper_id: string;
   pmid: string;
+  has_fulltext: boolean;
 }
 
 interface EvidenceChainProps {
@@ -17,7 +19,7 @@ interface EvidenceChainProps {
 }
 
 export default function EvidenceChain({ mechanismId }: EvidenceChainProps) {
-  const [evidence, setEvidence] = useState<ClaimNote[]>([]);
+  const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -53,7 +55,7 @@ export default function EvidenceChain({ mechanismId }: EvidenceChainProps) {
       {loaded && evidence.length > 0 && (
         <div className="mt-2 space-y-2">
           {evidence.map((item) => (
-            <EvidenceItem key={item.claim_id} item={item} supportColor={supportColor} />
+            <EvidenceItem key={item.evidenceitem_id} item={item} supportColor={supportColor} />
           ))}
         </div>
       )}
@@ -68,10 +70,12 @@ function EvidenceItem({
   item,
   supportColor,
 }: {
-  item: ClaimNote;
+  item: EvidenceItem;
   supportColor: (t: string) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const pmid = item.pmid || (item.reference?.startsWith('PMID:') ? item.reference.slice(5) : '');
+  const title = item.reference_title || (pmid ? `PMID:${pmid}` : item.paper_id);
   return (
     <div className="border border-slate-700 rounded p-2 bg-slate-800">
       <div className="flex items-start gap-2">
@@ -91,20 +95,20 @@ function EvidenceItem({
       <p className="text-xs text-slate-300 mt-1 italic">&ldquo;{item.snippet}&rdquo;</p>
       {expanded && (
         <div className="mt-2 border-t border-slate-700 pt-2 space-y-1">
-          <p className="text-xs text-slate-400">{item.extraction_content}</p>
+          <p className="text-xs text-slate-400">{item.explanation}</p>
           <p className="text-xs text-slate-500">
             Source:{' '}
-            {item.pmid ? (
+            {pmid ? (
               <a
-                href={`https://pubmed.ncbi.nlm.nih.gov/${item.pmid}/`}
+                href={`https://pubmed.ncbi.nlm.nih.gov/${pmid}/`}
                 target="_blank"
                 rel="noreferrer"
                 className="text-cyan-400 font-semibold underline underline-offset-2 hover:text-blue-400 transition-colors"
               >
-                {item.paper_title || `PMID:${item.pmid}`}
+                {title}
               </a>
             ) : (
-              <span className="text-slate-400">{item.paper_title || item.paper_id}</span>
+              <span className="text-slate-400">{title}</span>
             )}
           </p>
         </div>

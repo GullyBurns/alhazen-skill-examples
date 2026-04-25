@@ -7,8 +7,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MechanismCard, Mechanism } from '@/components/alg-precision-therapeutics/mechanism-card';
 import { GapsPanel } from '@/components/alg-precision-therapeutics/gaps-panel';
-import CausalChainFlow from '@/components/alg-precision-therapeutics/causal-chain-flow';
+import dynamic from 'next/dynamic';
 import EvidenceSearch from '@/components/alg-precision-therapeutics/evidence-search';
+
+const CausalGraph = dynamic(
+  () => import('@/components/alg-precision-therapeutics/causal-graph'),
+  { ssr: false }
+);
 
 interface Gene {
   id: string;
@@ -36,6 +41,13 @@ interface GapData {
   unexplained_phenotypes: { hpo_id: string; label: string }[];
   orphan_genes: { id: string; symbol: string }[];
   summary: { undrugged_count: number; unexplained_phenotype_count: number; orphan_gene_count: number };
+}
+
+interface Treatment {
+  id: string;
+  name: string;
+  description: string;
+  maxo_id: string;
 }
 
 function Section({
@@ -74,6 +86,7 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
   const [mechanisms, setMechanisms] = useState<Mechanism[]>([]);
   const [genes, setGenes] = useState<Gene[]>([]);
   const [gaps, setGaps] = useState<GapData | null>(null);
+  const [treatments, setTreatments] = useState<Treatment[]>([]);
   const [loading, setLoading] = useState(true);
   const [gapsLoading, setGapsLoading] = useState(false);
   const [gapsLoaded, setGapsLoaded] = useState(false);
@@ -87,21 +100,24 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
     setError(null);
     try {
       const qs = `?mondo_id=${encodeURIComponent(mondoId)}`;
-      const [diseaseRes, mechRes, genesRes] = await Promise.all([
+      const [diseaseRes, mechRes, genesRes, treatmentsRes] = await Promise.all([
         fetch(`/api/alg-precision-therapeutics/disease${qs}`),
         fetch(`/api/alg-precision-therapeutics/mechanisms${qs}`),
         fetch(`/api/alg-precision-therapeutics/genes${qs}`),
+        fetch(`/api/alg-precision-therapeutics/treatments${qs}`),
       ]);
 
-      const [diseaseData, mechData, genesData] = await Promise.all([
+      const [diseaseData, mechData, genesData, treatmentsData] = await Promise.all([
         diseaseRes.json(),
         mechRes.json(),
         genesRes.json(),
+        treatmentsRes.json(),
       ]);
 
       setDisease(diseaseData.disease ?? null);
       setMechanisms(mechData.mechanisms ?? []);
       setGenes([...(genesData.causal_genes ?? []), ...(genesData.associated_genes ?? [])]);
+      setTreatments(treatmentsData.treatments ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {
@@ -140,7 +156,6 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
 
   const omimUrl = disease?.omim_id ? `https://omim.org/entry/${disease.omim_id}` : null;
 
-  const totalStrategies = mechanisms.reduce((s, m) => s + m.therapeutic_strategies.length, 0);
   const selectedMech = mechanisms.find((m) => m.id === selectedMechId);
 
   const statCards = [
@@ -166,8 +181,8 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
       colorBorder: 'border-blue-500/20',
     },
     {
-      label: 'Strategies',
-      value: totalStrategies,
+      label: 'Treatments',
+      value: treatments.length,
       colorText: 'text-violet-400',
       colorBg: 'bg-violet-500/10',
       colorBorder: 'border-violet-500/20',
@@ -261,14 +276,14 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
             {/* Section 2: Mechanism Cascade */}
             <Section title={`Section 2 — Mechanism Cascade (${mechanisms.length})`}>
               <div className="lg:grid lg:grid-cols-2 lg:gap-6">
-                {/* Left: causal chain flow */}
+                {/* Left: causal graph */}
                 <div>
                   {mechanisms.length === 0 ? (
                     <p className="text-sm text-slate-500">
                       No mechanisms yet. Run sensemaking to add them.
                     </p>
                   ) : (
-                    <CausalChainFlow
+                    <CausalGraph
                       mechanisms={mechanisms}
                       onSelectMechanism={handleSelectMechanism}
                       selectedId={selectedMechId}
@@ -370,7 +385,7 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
                   <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
                     Therapeutic Strategies
                   </h3>
-                  {totalStrategies === 0 ? (
+                  {mechanisms.reduce((s, m) => s + m.therapeutic_strategies.length, 0) === 0 ? (
                     <p className="text-sm text-slate-500">No strategies recorded yet.</p>
                   ) : (
                     <div className="space-y-2">
@@ -398,14 +413,37 @@ export default function DiseaseDetailPage({ params }: { params: Promise<{ id: st
               </div>
             </Section>
 
-            {/* Section 4: Literature Search */}
-            <Section title="Section 4 — Literature Search">
+            {/* Section 4: Treatments */}
+            <Section title={`Section 4 — Treatments (${treatments.length})`}>
+              {treatments.length === 0 ? (
+                <p className="text-sm text-slate-500">No treatments recorded.</p>
+              ) : (
+                <div className="space-y-3">
+                  {treatments.map((t) => (
+                    <div key={t.id} className="border border-border/50 rounded-lg p-3 bg-muted/20">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-sm font-semibold text-foreground">{t.name}</span>
+                        {t.maxo_id && (
+                          <code className="text-xs text-amber-400">{t.maxo_id}</code>
+                        )}
+                      </div>
+                      {t.description && (
+                        <p className="text-xs text-muted-foreground leading-relaxed">{t.description}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+
+            {/* Section 5: Literature Search */}
+            <Section title="Section 5 — Literature Search">
               <EvidenceSearch mondoId={mondoId} />
             </Section>
 
-            {/* Section 5: Gaps */}
+            {/* Section 6: Gaps */}
             <Section
-              title="Section 5 — Knowledge Gaps"
+              title="Section 6 — Knowledge Gaps"
               defaultOpen={false}
             >
               {gapsLoading ? (

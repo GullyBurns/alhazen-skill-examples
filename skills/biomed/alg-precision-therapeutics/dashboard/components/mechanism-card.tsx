@@ -18,6 +18,11 @@ export interface Mechanism {
   genes: { symbol: string; id: string }[];
   phenotypes_caused: { hpo_id: string; label: string }[];
   therapeutic_strategies: { id: string; approach: string; name: string }[];
+  gene_descriptors: { term: string; hgnc_id: string }[];
+  locations: { term: string; uberon_id: string }[];
+  cell_types: { term: string; cl_id: string }[];
+  biological_processes: { term: string; go_id: string }[];
+  downstream_targets: { target_name: string }[];
 }
 
 const TIER_STYLES: Record<string, string> = {
@@ -94,6 +99,76 @@ export function MechanismCard({ mechanism, index }: MechanismCardProps) {
 
       {expanded && (
         <CardContent className="pt-0 space-y-4">
+          {/* Descriptor tags */}
+          {((mechanism.gene_descriptors?.length ?? 0) > 0 ||
+            (mechanism.locations?.length ?? 0) > 0 ||
+            (mechanism.cell_types?.length ?? 0) > 0 ||
+            (mechanism.biological_processes?.length ?? 0) > 0) && (
+            <div className="flex flex-wrap gap-1.5">
+              {mechanism.gene_descriptors?.map((d) => (
+                <a
+                  key={d.hgnc_id}
+                  href={`https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/${d.hgnc_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs px-2 py-0.5 rounded border bg-blue-500/15 border-blue-500/30 text-blue-300 hover:bg-blue-500/25 transition-colors"
+                >
+                  {d.term}
+                </a>
+              ))}
+              {mechanism.cell_types?.map((d) => (
+                <a
+                  key={d.cl_id}
+                  href={`https://www.ebi.ac.uk/ols4/ontologies/cl/terms?obo_id=${d.cl_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs px-2 py-0.5 rounded border bg-pink-500/15 border-pink-500/30 text-pink-300 hover:bg-pink-500/25 transition-colors"
+                >
+                  {d.term}
+                </a>
+              ))}
+              {mechanism.locations?.map((d) => (
+                <a
+                  key={d.uberon_id}
+                  href={`https://www.ebi.ac.uk/ols4/ontologies/uberon/terms?obo_id=${d.uberon_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs px-2 py-0.5 rounded border bg-indigo-500/15 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/25 transition-colors"
+                >
+                  {d.term}
+                </a>
+              ))}
+              {mechanism.biological_processes?.map((d) => (
+                <a
+                  key={d.go_id}
+                  href={`https://www.ebi.ac.uk/ols4/ontologies/go/terms?obo_id=${d.go_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs px-2 py-0.5 rounded border bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25 transition-colors"
+                >
+                  {d.term}
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* Downstream targets */}
+          {(mechanism.downstream_targets?.length ?? 0) > 0 && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Downstream targets</p>
+              <div className="flex flex-wrap gap-1.5">
+                {mechanism.downstream_targets.map((t, i) => (
+                  <span
+                    key={i}
+                    className="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300 border border-slate-600"
+                  >
+                    {t.target_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Evidence chain */}
           <EvidenceChain mechanismId={mechanism.id} />
 
