@@ -10,6 +10,30 @@
 #
 # Namespace prefix: apt-*
 # =============================================================================
+# DISMECH CONCEPT MAPPING
+# =============================================================================
+# apt-mechanism              <==> dismech:Pathophysiology (core mechanistic node)
+#                                 NOT dismech:Mechanism (which is just name+description)
+# apt-causaledge             <==> dismech:CausalEdge
+# apt-evidenceitem           <==> dismech:EvidenceItem
+# apt-mechanism-hypothesis   <==> dismech:MechanisticHypothesis
+# apt-gene-descriptor        <==> dismech:GeneDescriptor
+# apt-anatomicaldescriptor   <==> dismech:AnatomicalEntityDescriptor
+# apt-celltypedescriptor     <==> dismech:CellTypeDescriptor
+# apt-biologicaldescriptor   <==> dismech:BiologicalProcessDescriptor
+# apt-chemicalentitydescriptor   <==> dismech:ChemicalEntityDescriptor   [NEW]
+# apt-molecularfunctiondescriptor <==> dismech:MolecularFunctionDescriptor [NEW]
+# apt-cellularcomponentdescriptor <==> dismech:CellularComponentDescriptor [NEW]
+# apt-proteincomplexdescriptor    <==> dismech:ProteinComplexDescriptor    [NEW]
+# apt-disease                <==> dismech:Disease (adds OMIM/ORPHA/GARD IDs)
+# apt-phenotype              <==> dismech:Phenotype (HPO-centric, simplified)
+# apt-variant                <==> dismech:Variant (adds HGVS notation)
+# apt-drug                   <==> dismech:Treatment (compound focus; adds ChEMBL)
+# apt-treatment              <==> dismech:Treatment (MAXO-coded intervention)
+# apt-clinical-trial         <==> dismech:ClinicalTrial
+# apt-disease-model          <==> dismech:AnimalModel + ExperimentalModel (collapsed)
+# apt-investigation          <==> dismech:DiseaseCollection (Alhazen notebook context)
+# =============================================================================
 
 define
 
@@ -139,6 +163,18 @@ attribute apt-uberon-id, value string;
 attribute apt-go-id, value string;
 # Gene Ontology term ID (e.g. "GO:0006915")
 
+attribute apt-chebi-id, value string;
+# ChEBI chemical entity ID (e.g. "CHEBI:15422" for ATP)
+
+attribute apt-go-mf-id, value string;
+# Gene Ontology Molecular Function term ID (e.g. "GO:0003700" for DNA-binding TF activity)
+
+attribute apt-go-cc-id, value string;
+# Gene Ontology Cellular Component term ID (e.g. "GO:0005634" for nucleus)
+
+attribute apt-complex-id, value string;
+# GO protein complex term ID or IntAct complex ID (e.g. "CPX-1")
+
 attribute apt-maxo-id, value string;
 # Medical Action Ontology ID (e.g. "MAXO:0000186")
 
@@ -250,6 +286,10 @@ entity apt-mechanism sub domain-thing,
     plays apt-mechanism-location-link:mechanism,
     plays apt-mechanism-celltype-link:mechanism,
     plays apt-mechanism-process-link:mechanism,
+    plays apt-mechanism-chemical-link:mechanism,
+    plays apt-mechanism-function-link:mechanism,
+    plays apt-mechanism-component-link:mechanism,
+    plays apt-mechanism-complex-link:mechanism,
     plays apt-mechanism-downstream:cause,
     plays apt-mechanism-sequelae:target,
     plays apt-evidence:subject,
@@ -608,6 +648,34 @@ relation apt-mechanism-process-link,
     relates mechanism,
     relates process;
 
+# APT-MECHANISM-CHEMICAL-LINK - Mechanism involves a chemical entity (CHEBI)
+# DisMech equivalent: pathophysiology.chemical_entities
+relation apt-mechanism-chemical-link,
+    owns apt-modifier,
+    relates mechanism,
+    relates chemical;
+
+# APT-MECHANISM-FUNCTION-LINK - Mechanism involves a molecular function (GO MF)
+# DisMech equivalent: pathophysiology.molecular_functions
+relation apt-mechanism-function-link,
+    owns apt-modifier,
+    relates mechanism,
+    relates function;
+
+# APT-MECHANISM-COMPONENT-LINK - Mechanism occurs in/at a cellular component (GO CC)
+# DisMech equivalent: pathophysiology.cellular_components
+relation apt-mechanism-component-link,
+    owns apt-modifier,
+    relates mechanism,
+    relates component;
+
+# APT-MECHANISM-COMPLEX-LINK - Mechanism involves a protein complex
+# DisMech equivalent: pathophysiology.protein_complexes
+relation apt-mechanism-complex-link,
+    owns apt-modifier,
+    relates mechanism,
+    relates complex;
+
 # APT-MECHANISM-DOWNSTREAM - Reified causal link: mechanism -> causaledge
 relation apt-mechanism-downstream,
     relates cause,
@@ -656,6 +724,34 @@ entity apt-biologicaldescriptor sub domain-thing,
     owns apt-preferred-term,
     owns apt-go-id,
     plays apt-mechanism-process-link:process;
+
+# APT-CHEMICALENTITYDESCRIPTOR - A chemical entity referenced by a mechanism (CHEBI)
+# DisMech equivalent: ChemicalEntityDescriptor (pathophysiology.chemical_entities)
+entity apt-chemicalentitydescriptor sub domain-thing,
+    owns apt-preferred-term,
+    owns apt-chebi-id,
+    plays apt-mechanism-chemical-link:chemical;
+
+# APT-MOLECULARFUNCTIONDESCRIPTOR - A molecular function referenced by a mechanism (GO MF)
+# DisMech equivalent: MolecularFunctionDescriptor (pathophysiology.molecular_functions)
+entity apt-molecularfunctiondescriptor sub domain-thing,
+    owns apt-preferred-term,
+    owns apt-go-mf-id,
+    plays apt-mechanism-function-link:function;
+
+# APT-CELLULARCOMPONENTDESCRIPTOR - A cellular compartment referenced by a mechanism (GO CC)
+# DisMech equivalent: CellularComponentDescriptor (pathophysiology.cellular_components)
+entity apt-cellularcomponentdescriptor sub domain-thing,
+    owns apt-preferred-term,
+    owns apt-go-cc-id,
+    plays apt-mechanism-component-link:component;
+
+# APT-PROTEINCOMPLEXDESCRIPTOR - A protein complex referenced by a mechanism (GO/IntAct)
+# DisMech equivalent: ProteinComplexDescriptor (pathophysiology.protein_complexes)
+entity apt-proteincomplexdescriptor sub domain-thing,
+    owns apt-preferred-term,
+    owns apt-complex-id,
+    plays apt-mechanism-complex-link:complex;
 
 # APT-EVIDENCEITEM - Domain-layer evidence record (DisMech-aligned, PMID-backed)
 # Sits in domain layer; scilit-extraction-note attaches via aboutness:subject (inherited)
