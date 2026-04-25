@@ -1871,9 +1871,55 @@ def cmd_show_mechanisms(args):
                     }};
                 ''').resolve())
 
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                gene_descriptors = list(tx.query(f'''
+                    match
+                        $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                        (mechanism: $m, gene-descriptor: $g) isa apt-mechanism-gene-link;
+                    fetch {{ "term": $g.apt-preferred-term, "hgnc_id": $g.apt-hgnc-id }};
+                ''').resolve())
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                locations = list(tx.query(f'''
+                    match
+                        $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                        (mechanism: $m, location: $d) isa apt-mechanism-location-link;
+                    fetch {{ "term": $d.apt-preferred-term, "uberon_id": $d.apt-uberon-id }};
+                ''').resolve())
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                cell_types = list(tx.query(f'''
+                    match
+                        $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                        (mechanism: $m, cell-type: $d) isa apt-mechanism-celltype-link;
+                    fetch {{ "term": $d.apt-preferred-term, "cl_id": $d.apt-cl-id }};
+                ''').resolve())
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                bio_processes = list(tx.query(f'''
+                    match
+                        $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                        (mechanism: $m, process: $d) isa apt-mechanism-process-link;
+                    fetch {{ "term": $d.apt-preferred-term, "go_id": $d.apt-go-id }};
+                ''').resolve())
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                downstream = list(tx.query(f'''
+                    match
+                        $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                        (cause: $m, edge: $e) isa apt-mechanism-downstream;
+                        (edge: $e, target: $t) isa apt-mechanism-sequelae;
+                    fetch {{ "target_name": $t.name }};
+                ''').resolve())
+
             mech["genes"] = genes
             mech["phenotypes_caused"] = phenotypes
             mech["therapeutic_strategies"] = strategies
+            mech["gene_descriptors"] = gene_descriptors
+            mech["locations"] = locations
+            mech["cell_types"] = cell_types
+            mech["biological_processes"] = bio_processes
+            mech["downstream_targets"] = downstream
             result_mechanisms.append(mech)
 
     print(json.dumps({
@@ -1882,6 +1928,52 @@ def cmd_show_mechanisms(args):
         "mondo_id": mondo_id,
         "mechanism_count": len(result_mechanisms),
         "mechanisms": result_mechanisms,
+    }, indent=2))
+
+
+def cmd_show_treatments(args):
+    """Show treatments linked to a disease."""
+    mondo_id = args.mondo_id
+    if not mondo_id.startswith("MONDO:"):
+        mondo_id = f"MONDO:{mondo_id}"
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            rows = list(tx.query(f'''
+                match $d isa apt-disease, has apt-mondo-id "{escape_string(mondo_id)}";
+                      (disease: $d, treatment: $t) isa apt-disease-has-treatment;
+                      $t has id $tid, has name $tname;
+                fetch {{
+                    "id": $tid,
+                    "name": $tname
+                }};
+            ''').resolve())
+    treatments = []
+    for row in rows:
+        tid = row.get("id", "")
+        tname = row.get("name", "")
+        # Fetch description and maxo_id separately (optional attributes)
+        desc = ""
+        maxo_id = ""
+        with get_driver() as driver:
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                desc_rows = list(tx.query(f'''
+                    match $t isa apt-treatment, has id "{escape_string(tid)}";
+                    fetch {{ "desc": $t.description, "maxo": $t.apt-maxo-id }};
+                ''').resolve())
+                if desc_rows:
+                    desc = desc_rows[0].get("desc", "") or ""
+                    maxo_id = desc_rows[0].get("maxo", "") or ""
+        treatments.append({
+            "id": tid,
+            "name": tname,
+            "description": desc,
+            "maxo_id": maxo_id,
+        })
+    print(json.dumps({
+        "success": True,
+        "mondo_id": mondo_id,
+        "treatment_count": len(treatments),
+        "treatments": treatments,
     }, indent=2))
 
 
@@ -4191,6 +4283,10 @@ def build_parser():
     p = sub.add_parser("show-mechanisms", help="All mechanisms with links")
     p.add_argument("--mondo-id", dest="mondo_id", required=True, help="MONDO ID")
 
+    # show-treatments
+    p = sub.add_parser("show-treatments", help="Treatments linked to a disease")
+    p.add_argument("--mondo-id", dest="mondo_id", required=True, help="MONDO ID")
+
     # show-therapeutic-map
     p = sub.add_parser("show-therapeutic-map", help="Therapeutic strategies per mechanism")
     p.add_argument("--mondo-id", dest="mondo_id", required=True, help="MONDO ID")
@@ -4329,6 +4425,7 @@ COMMAND_MAP = {
     "show-artifact": cmd_show_artifact,
     "show-disease": cmd_show_disease,
     "show-mechanisms": cmd_show_mechanisms,
+    "show-treatments": cmd_show_treatments,
     "show-therapeutic-map": cmd_show_therapeutic_map,
     "show-phenome": cmd_show_phenome,
     "show-genes": cmd_show_genes,
