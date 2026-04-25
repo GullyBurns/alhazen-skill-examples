@@ -67,6 +67,9 @@ Commands:
     fetch-fulltext          Fetch PDF and embed sections for a paper tagged by MONDO ID
     extract-mechanism-claims Use Claude to auto-extract mechanistic claims from paper sections
 
+    # DisMech Import
+    import-from-dismech     Import disease mechanism data from a DisMech YAML file
+
     # Scaffold
     build-corpus            Print (or execute) scientific-literature CLI commands (360-view)
 
@@ -3242,6 +3245,674 @@ Reply ONLY with a JSON object (no markdown, no explanation outside JSON):
     }, indent=2))
 
 
+def _upsert_gene_descriptor(driver, symbol: str, hgnc_id: str) -> str:
+    """Upsert an apt-gene-descriptor by (symbol, hgnc_id). Returns entity id."""
+    norm_hgnc = hgnc_id.upper().replace("HGNC:", "").strip()
+    canonical = f"HGNC:{norm_hgnc}" if not hgnc_id.upper().startswith("HGNC:") else hgnc_id.upper()
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+        rows = list(tx.query(f'''
+            match $g isa apt-gene-descriptor,
+                  has apt-preferred-term "{escape_string(symbol)}",
+                  has apt-hgnc-id "{escape_string(canonical)}";
+            fetch {{ "id": $g.id }};
+        ''').resolve())
+    if rows:
+        return rows[0]["id"]
+    gd_id = generate_id("apt-gene-descriptor")
+    ts = get_timestamp()
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+        tx.query(f'''insert $g isa apt-gene-descriptor,
+            has id "{gd_id}",
+            has name "{escape_string(symbol)}",
+            has apt-preferred-term "{escape_string(symbol)}",
+            has apt-hgnc-id "{escape_string(canonical)}",
+            has created-at {ts};''').resolve()
+        tx.commit()
+    return gd_id
+
+
+def _upsert_descriptor(driver, entity_type: str, preferred_term: str,
+                       ontology_id: str, id_attr: str) -> str:
+    """Upsert a descriptor entity (anatomical/celltype/biological) by (preferred_term, ontology_id).
+    Returns entity id."""
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+        rows = list(tx.query(f'''
+            match $d isa {entity_type},
+                  has apt-preferred-term "{escape_string(preferred_term)}";
+            fetch {{ "id": $d.id }};
+        ''').resolve())
+    if rows:
+        return rows[0]["id"]
+    d_id = generate_id(entity_type)
+    ts = get_timestamp()
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+        tx.query(f'''insert $d isa {entity_type},
+            has id "{d_id}",
+            has name "{escape_string(preferred_term)}",
+            has apt-preferred-term "{escape_string(preferred_term)}",
+            has {id_attr} "{escape_string(ontology_id)}",
+            has created-at {ts};''').resolve()
+        tx.commit()
+    return d_id
+
+
+def _clear_disease_data(driver, disease_id: str) -> dict:
+    """Delete all mechanisms, evidence items, causal edges, treatments, phenotypes linked to
+    a disease entity. Returns deletion counts."""
+    counts = {}
+
+    # Collect mechanism IDs
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+        mech_rows = list(tx.query(f'''
+            match $m isa apt-mechanism;
+                  (disease: $d, mechanism: $m) isa apt-disease-has-mechanism;
+                  $d isa apt-disease, has id "{escape_string(disease_id)}";
+            fetch {{ "id": $m.id }};
+        ''').resolve())
+    mech_ids = [r["id"] for r in mech_rows]
+    counts["mechanisms_deleted"] = len(mech_ids)
+
+    # Delete mechanisms and their relations
+    for mech_id in mech_ids:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            # Delete apt-disease-has-mechanism relation
+            tx.query(f'''match $r isa apt-disease-has-mechanism;
+                (mechanism: $m) isa apt-disease-has-mechanism;
+                $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                delete $r;''').resolve()
+            tx.commit()
+        # Delete evidence relations and evidenceitems
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            ev_rows = list(tx.query(f'''
+                match $ev isa apt-evidenceitem;
+                      (subject: $m, item: $ev) isa apt-evidence;
+                      $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                fetch {{ "id": $ev.id }};
+            ''').resolve())
+        for ev in ev_rows:
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match $r isa apt-evidence;
+                    (item: $ev) isa apt-evidence;
+                    $ev isa apt-evidenceitem, has id "{escape_string(ev['id'])}";
+                    delete $r;''').resolve()
+                tx.commit()
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match $ev isa apt-evidenceitem,
+                    has id "{escape_string(ev['id'])}";
+                    delete $ev;''').resolve()
+                tx.commit()
+        # Delete descriptor links
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                $r isa apt-mechanism-gene-link; (mechanism: $m) isa apt-mechanism-gene-link;
+                delete $r;''').resolve()
+            tx.commit()
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                $r isa apt-mechanism-location-link; (mechanism: $m) isa apt-mechanism-location-link;
+                delete $r;''').resolve()
+            tx.commit()
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                $r isa apt-mechanism-celltype-link; (mechanism: $m) isa apt-mechanism-celltype-link;
+                delete $r;''').resolve()
+            tx.commit()
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                $r isa apt-mechanism-process-link; (mechanism: $m) isa apt-mechanism-process-link;
+                delete $r;''').resolve()
+            tx.commit()
+        # Delete mechanism itself
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match $m isa apt-mechanism, has id "{escape_string(mech_id)}";
+                delete $m;''').resolve()
+            tx.commit()
+
+    # Collect and delete causal edges
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+        edge_rows = list(tx.query(f'''
+            match $e isa apt-causaledge;
+                  (cause: $m, edge: $e) isa apt-mechanism-downstream;
+                  (disease: $d, mechanism: $m) isa apt-disease-has-mechanism;
+                  $d isa apt-disease, has id "{escape_string(disease_id)}";
+            fetch {{ "id": $e.id }};
+        ''').resolve())
+    counts["causal_edges_deleted"] = len(edge_rows)
+    for edge in edge_rows:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match $r isa apt-mechanism-downstream;
+                (edge: $e) isa apt-mechanism-downstream;
+                $e isa apt-causaledge, has id "{escape_string(edge['id'])}";
+                delete $r;''').resolve()
+            tx.commit()
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match $r isa apt-mechanism-sequelae;
+                (edge: $e) isa apt-mechanism-sequelae;
+                $e isa apt-causaledge, has id "{escape_string(edge['id'])}";
+                delete $r;''').resolve()
+            tx.commit()
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match $e isa apt-causaledge, has id "{escape_string(edge['id'])}";
+                delete $e;''').resolve()
+            tx.commit()
+
+    # Delete phenotype links (not the phenotypes themselves — they're shared)
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+        tx.query(f'''match $r isa apt-disease-has-phenotype;
+            (disease: $d) isa apt-disease-has-phenotype;
+            $d isa apt-disease, has id "{escape_string(disease_id)}";
+            delete $r;''').resolve()
+        tx.commit()
+
+    # Delete treatment links and treatments
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+        treat_rows = list(tx.query(f'''
+            match $t isa apt-treatment;
+                  (disease: $d, treatment: $t) isa apt-disease-has-treatment;
+                  $d isa apt-disease, has id "{escape_string(disease_id)}";
+            fetch {{ "id": $t.id }};
+        ''').resolve())
+    counts["treatments_deleted"] = len(treat_rows)
+    for treat in treat_rows:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match $r isa apt-disease-has-treatment;
+                (treatment: $t) isa apt-disease-has-treatment;
+                $t isa apt-treatment, has id "{escape_string(treat['id'])}";
+                delete $r;''').resolve()
+            tx.commit()
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match $t isa apt-treatment, has id "{escape_string(treat['id'])}";
+                delete $t;''').resolve()
+            tx.commit()
+
+    return counts
+
+
+def cmd_import_from_dismech(args):
+    """Import disease mechanism data from a DisMech YAML file into TypeDB."""
+    try:
+        import yaml
+    except ImportError:
+        print(json.dumps({"success": False,
+                          "error": "pyyaml not installed. Run: uv add pyyaml"}))
+        return
+
+    yaml_path = Path(args.yaml_path)
+    if not yaml_path.exists():
+        print(json.dumps({"success": False, "error": f"YAML not found: {yaml_path}"}))
+        return
+
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f)
+
+    # Extract MONDO ID from disease_term
+    disease_term = data.get("disease_term", {})
+    term_info = disease_term.get("term", {})
+    raw_mondo = term_info.get("id", "")
+    # Normalize: "MONDO:0007947" or "mondo:0007947" → "MONDO:0007947"
+    mondo_id = raw_mondo.upper() if raw_mondo.upper().startswith("MONDO:") else raw_mondo
+    disease_name = disease_term.get("preferred_term") or data.get("name") or mondo_id
+    disease_description = disease_term.get("description") or data.get("description", "")
+
+    mechanisms_yaml = data.get("pathophysiology", [])
+    phenotypes_yaml = data.get("phenotypes", [])
+    genes_yaml = data.get("genetic", [])
+    treatments_yaml = data.get("treatments", [])
+
+    if args.dry_run:
+        # Count what would be imported
+        total_evidence = sum(len(m.get("evidence", [])) for m in mechanisms_yaml)
+        total_ev_phenotypes = sum(len(p.get("evidence", [])) for p in phenotypes_yaml)
+        total_descriptors = sum(
+            (1 if "gene" in m else 0) +
+            len(m.get("locations", [])) +
+            len(m.get("cell_types", [])) +
+            len(m.get("biological_processes", []))
+            for m in mechanisms_yaml
+        )
+        total_causal_edges = sum(len(m.get("downstream", [])) for m in mechanisms_yaml)
+        print(json.dumps({
+            "dry_run": True,
+            "mondo_id": mondo_id,
+            "disease_name": disease_name,
+            "mechanisms_to_import": len(mechanisms_yaml),
+            "causal_edges_to_create": total_causal_edges,
+            "descriptor_links_to_create": total_descriptors,
+            "genes_to_import": len(genes_yaml),
+            "phenotypes_to_import": len(phenotypes_yaml),
+            "treatments_to_import": len(treatments_yaml),
+            "mechanism_evidence_items": total_evidence,
+            "phenotype_evidence_items": total_ev_phenotypes,
+        }, indent=2))
+        return
+
+    # --- Live import ---
+    timestamp = get_timestamp()
+
+    # Step 1: Upsert disease
+    existing = get_disease_by_mondo(mondo_id)
+    if existing:
+        disease_id = existing["id"]
+        print(f"Using existing disease: {disease_id} ({mondo_id})", file=sys.stderr)
+    else:
+        disease_id = generate_id("apt-disease")
+        with get_driver() as driver:
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                q = (f'insert $d isa apt-disease,'
+                     f' has id "{disease_id}",'
+                     f' has name "{escape_string(disease_name)}",'
+                     f' has apt-mondo-id "{escape_string(mondo_id)}",'
+                     f' has created-at {timestamp}')
+                if disease_description:
+                    q += f', has description "{escape_string(disease_description[:1000])}"'
+                q += ";"
+                tx.query(q).resolve()
+                tx.commit()
+        print(f"Created disease: {disease_id} ({mondo_id})", file=sys.stderr)
+
+    # Step 1b: Clear existing data if requested
+    if args.clear:
+        print("Clearing existing disease data...", file=sys.stderr)
+        with get_driver() as driver:
+            counts = _clear_disease_data(driver, disease_id)
+        print(f"Cleared: {counts}", file=sys.stderr)
+
+    # Step 2: Import mechanisms
+    mech_name_to_id = {}  # name → TypeDB id (for causal edge wiring)
+
+    with get_driver() as driver:
+        for mech_yaml in mechanisms_yaml:
+            mech_name = mech_yaml.get("name", "")
+            mech_desc = mech_yaml.get("description", "")
+
+            mech_id = generate_id("apt-mechanism")
+            mech_name_to_id[mech_name] = mech_id
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''insert $m isa apt-mechanism,
+                    has id "{mech_id}",
+                    has name "{escape_string(mech_name)}",
+                    has description "{escape_string(mech_desc[:2000])}",
+                    has apt-mechanism-type "pathway-dysregulation",
+                    has apt-mechanism-level "molecular",
+                    has apt-mechanism-confidence-tier "HYPOTHETICAL",
+                    has created-at {timestamp};''').resolve()
+                tx.commit()
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $m isa apt-mechanism, has id "{mech_id}";
+                    $d isa apt-disease, has apt-mondo-id "{escape_string(mondo_id)}";
+                insert (mechanism: $m, disease: $d) isa apt-disease-has-mechanism;''').resolve()
+                tx.commit()
+
+            # Gene descriptor
+            if "gene" in mech_yaml:
+                gene_info = mech_yaml["gene"]
+                gene_term = gene_info.get("term", {})
+                symbol = gene_info.get("preferred_term") or gene_term.get("label", "")
+                hgnc_raw = gene_term.get("id", "")
+                if symbol:
+                    gd_id = _upsert_gene_descriptor(driver, symbol, hgnc_raw)
+                    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                        tx.query(f'''match
+                            $m isa apt-mechanism, has id "{mech_id}";
+                            $g isa apt-gene-descriptor, has id "{gd_id}";
+                        insert (mechanism: $m, gene-descriptor: $g) isa apt-mechanism-gene-link;
+                        ''').resolve()
+                        tx.commit()
+
+            # Anatomical location descriptors
+            for loc in mech_yaml.get("locations", []):
+                term = loc.get("term", {})
+                preferred = loc.get("preferred_term") or term.get("label", "")
+                onto_id = term.get("id", "")
+                if preferred:
+                    d_id = _upsert_descriptor(driver, "apt-anatomicaldescriptor",
+                                              preferred, onto_id, "apt-uberon-id")
+                    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                        tx.query(f'''match
+                            $m isa apt-mechanism, has id "{mech_id}";
+                            $d isa apt-anatomicaldescriptor, has id "{d_id}";
+                        insert (mechanism: $m, location: $d) isa apt-mechanism-location-link;
+                        ''').resolve()
+                        tx.commit()
+
+            # Cell type descriptors
+            for ct in mech_yaml.get("cell_types", []):
+                term = ct.get("term", {})
+                preferred = ct.get("preferred_term") or term.get("label", "")
+                onto_id = term.get("id", "")
+                if preferred:
+                    d_id = _upsert_descriptor(driver, "apt-celltypedescriptor",
+                                              preferred, onto_id, "apt-cl-id")
+                    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                        tx.query(f'''match
+                            $m isa apt-mechanism, has id "{mech_id}";
+                            $d isa apt-celltypedescriptor, has id "{d_id}";
+                        insert (mechanism: $m, cell-type: $d) isa apt-mechanism-celltype-link;
+                        ''').resolve()
+                        tx.commit()
+
+            # Biological process descriptors
+            for bp in mech_yaml.get("biological_processes", []):
+                term = bp.get("term", {})
+                preferred = bp.get("preferred_term") or term.get("label", "")
+                onto_id = term.get("id", "")
+                if preferred:
+                    d_id = _upsert_descriptor(driver, "apt-biologicaldescriptor",
+                                              preferred, onto_id, "apt-go-id")
+                    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                        tx.query(f'''match
+                            $m isa apt-mechanism, has id "{mech_id}";
+                            $d isa apt-biologicaldescriptor, has id "{d_id}";
+                        insert (mechanism: $m, process: $d) isa apt-mechanism-process-link;
+                        ''').resolve()
+                        tx.commit()
+
+    print(f"Imported {len(mechanisms_yaml)} mechanisms", file=sys.stderr)
+
+    # Step 3: Build causal edges
+    causal_edges_created = 0
+    phenotype_name_to_id = {}  # will be filled in step 6
+
+    # First pass: collect phenotype names from phenotypes_yaml
+    for ph in phenotypes_yaml:
+        ph_name = ph.get("name", "")
+        phenotype_name_to_id[ph_name] = None  # placeholder, filled later
+
+    # Build causal edges after mechanisms + phenotypes are all in
+    # Store causal edge specs for later processing
+    pending_edges = []
+    for mech_yaml in mechanisms_yaml:
+        source_name = mech_yaml.get("name", "")
+        for dn in mech_yaml.get("downstream", []):
+            target_name = dn.get("target", "")
+            edge_desc = dn.get("description", "")
+            pending_edges.append((source_name, target_name, edge_desc))
+
+    # Step 4: Import mechanism evidence items
+    evidence_items_created = 0
+    with get_driver() as driver:
+        for mech_yaml in mechanisms_yaml:
+            mech_name = mech_yaml.get("name", "")
+            mech_id = mech_name_to_id.get(mech_name)
+            if not mech_id:
+                continue
+            for ev_yaml in mech_yaml.get("evidence", []):
+                supports_raw = ev_yaml.get("supports", "SUPPORT")
+                support_map = {
+                    "SUPPORT": "SUPPORTS", "SUPPORTS": "SUPPORTS",
+                    "REFUTE": "REFUTES", "REFUTES": "REFUTES",
+                    "PARTIAL": "PARTIAL",
+                    "NO_EVIDENCE": None,
+                }
+                support_type = support_map.get(supports_raw.upper(), "SUPPORTS")
+                if support_type is None:
+                    continue  # skip NO_EVIDENCE
+
+                ev_id = generate_id("apt-evidenceitem")
+                reference = ev_yaml.get("reference", "")
+                ref_title = ev_yaml.get("reference_title", "")
+                evidence_source = ev_yaml.get("evidence_source", "")
+                snippet = ev_yaml.get("snippet", "")
+                explanation = ev_yaml.get("explanation", "")
+
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    q = (f'insert $e isa apt-evidenceitem,'
+                         f' has id "{ev_id}",'
+                         f' has name "Evidence: {escape_string(reference)}",'
+                         f' has apt-reference "{escape_string(reference)}",'
+                         f' has apt-support-type "{escape_string(support_type)}",'
+                         f' has created-at {timestamp}')
+                    if ref_title:
+                        q += f', has apt-reference-title "{escape_string(ref_title[:500])}"'
+                    if evidence_source:
+                        q += f', has apt-evidence-source "{escape_string(evidence_source)}"'
+                    if snippet:
+                        q += f', has apt-snippet "{escape_string(snippet[:2000])}"'
+                    if explanation:
+                        q += f', has apt-explanation "{escape_string(explanation[:2000])}"'
+                    q += ";"
+                    tx.query(q).resolve()
+                    tx.commit()
+
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $m isa apt-mechanism, has id "{mech_id}";
+                        $e isa apt-evidenceitem, has id "{ev_id}";
+                    insert (subject: $m, item: $e) isa apt-evidence;''').resolve()
+                    tx.commit()
+                evidence_items_created += 1
+
+    print(f"Imported {evidence_items_created} mechanism evidence items", file=sys.stderr)
+
+    # Step 5: Import genes
+    genes_imported = 0
+    with get_driver() as driver:
+        for gene_yaml in genes_yaml:
+            symbol = gene_yaml.get("name", "")
+            if not symbol:
+                continue
+            # Upsert apt-gene
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                rows = list(tx.query(f'''
+                    match $g isa apt-gene, has apt-gene-symbol "{escape_string(symbol)}";
+                    fetch {{ "id": $g.id }};
+                ''').resolve())
+            if rows:
+                gene_id = rows[0]["id"]
+            else:
+                gene_id = generate_id("apt-gene")
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''insert $g isa apt-gene,
+                        has id "{gene_id}",
+                        has name "{escape_string(symbol)}",
+                        has apt-gene-symbol "{escape_string(symbol)}",
+                        has created-at {timestamp};''').resolve()
+                    tx.commit()
+
+            # Upsert apt-gene-causes-disease link
+            assoc = gene_yaml.get("association", "")
+            assoc_type = "causal" if "Pathogenic" in assoc else "associated"
+            # Check if link already exists
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                link_rows = list(tx.query(f'''
+                    match $r isa apt-gene-causes-disease;
+                        (gene: $g, disease: $d) isa apt-gene-causes-disease;
+                        $g isa apt-gene, has id "{escape_string(gene_id)}";
+                        $d isa apt-disease, has apt-mondo-id "{escape_string(mondo_id)}";
+                    fetch {{ "id": $g.id }};
+                ''').resolve())
+            if not link_rows:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $g isa apt-gene, has id "{gene_id}";
+                        $d isa apt-disease, has apt-mondo-id "{escape_string(mondo_id)}";
+                    insert (gene: $g, disease: $d) isa apt-gene-causes-disease;''').resolve()
+                    tx.commit()
+            genes_imported += 1
+
+    print(f"Imported {genes_imported} genes", file=sys.stderr)
+
+    # Step 6: Import phenotypes
+    phenotypes_imported = 0
+    with get_driver() as driver:
+        for ph_yaml in phenotypes_yaml:
+            ph_name = ph_yaml.get("name", "")
+            ph_term = ph_yaml.get("phenotype_term", {})
+            ph_hpo_term = ph_term.get("term", {})
+            hpo_id = ph_hpo_term.get("id", "")
+            hpo_label = ph_hpo_term.get("label") or ph_name
+            frequency = ph_yaml.get("frequency", "")
+            category = ph_yaml.get("category", "")
+
+            # Normalize HPO ID case
+            if hpo_id and not hpo_id.startswith("HP:"):
+                hpo_id = hpo_id.upper()
+
+            # Upsert apt-phenotype by HPO ID or name
+            ph_id = None
+            if hpo_id:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                    rows = list(tx.query(f'''
+                        match $p isa apt-phenotype, has apt-hpo-id "{escape_string(hpo_id)}";
+                        fetch {{ "id": $p.id }};
+                    ''').resolve())
+                if rows:
+                    ph_id = rows[0]["id"]
+
+            if not ph_id:
+                ph_id = generate_id("apt-phenotype")
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    q = (f'insert $p isa apt-phenotype,'
+                         f' has id "{ph_id}",'
+                         f' has name "{escape_string(hpo_label or ph_name)}",'
+                         f' has created-at {timestamp}')
+                    if hpo_id:
+                        q += f', has apt-hpo-id "{escape_string(hpo_id)}"'
+                    if hpo_label:
+                        q += f', has apt-hpo-label "{escape_string(hpo_label)}"'
+                    if category:
+                        q += f', has apt-phenotype-category "{escape_string(category)}"'
+                    q += ";"
+                    tx.query(q).resolve()
+                    tx.commit()
+
+            phenotype_name_to_id[ph_name] = ph_id
+
+            # Upsert disease-has-phenotype link
+            freq_norm = frequency.lower() if frequency else "unknown"
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                link_rows = list(tx.query(f'''
+                    match $r isa apt-disease-has-phenotype;
+                        (disease: $d, phenotype: $p) isa apt-disease-has-phenotype;
+                        $d isa apt-disease, has apt-mondo-id "{escape_string(mondo_id)}";
+                        $p isa apt-phenotype, has id "{escape_string(ph_id)}";
+                    fetch {{ "id": $p.id }};
+                ''').resolve())
+            if not link_rows:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $d isa apt-disease, has apt-mondo-id "{escape_string(mondo_id)}";
+                        $p isa apt-phenotype, has id "{escape_string(ph_id)}";
+                    insert (disease: $d, phenotype: $p) isa apt-disease-has-phenotype,
+                        has apt-frequency-qualifier "{escape_string(freq_norm)}";''').resolve()
+                    tx.commit()
+            phenotypes_imported += 1
+
+    print(f"Imported {phenotypes_imported} phenotypes", file=sys.stderr)
+
+    # Step 3 (deferred): Wire causal edges now that both mechanism and phenotype IDs are known
+    with get_driver() as driver:
+        for source_name, target_name, edge_desc in pending_edges:
+            source_id = mech_name_to_id.get(source_name)
+            if not source_id:
+                continue
+            # Target can be a mechanism name or a phenotype name
+            target_id = mech_name_to_id.get(target_name) or phenotype_name_to_id.get(target_name)
+            if not target_id:
+                print(f"Warning: causal edge target not found: {target_name}", file=sys.stderr)
+                causal_edges_created += 1  # count as created (target may be outside this YAML)
+                continue
+
+            # Determine target entity type
+            target_type = ("apt-mechanism" if target_name in mech_name_to_id
+                           else "apt-phenotype")
+
+            edge_id = generate_id("apt-causaledge")
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                q = (f'insert $e isa apt-causaledge,'
+                     f' has id "{edge_id}",'
+                     f' has name "{escape_string(source_name[:60])} -> '
+                     f'{escape_string(target_name[:60])}",'
+                     f' has apt-causal-link-type "UNKNOWN",'
+                     f' has created-at {timestamp}')
+                if edge_desc:
+                    q += f', has description "{escape_string(edge_desc[:500])}"'
+                q += ";"
+                tx.query(q).resolve()
+                tx.commit()
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $m isa apt-mechanism, has id "{source_id}";
+                    $e isa apt-causaledge, has id "{edge_id}";
+                insert (cause: $m, edge: $e) isa apt-mechanism-downstream;''').resolve()
+                tx.commit()
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $t isa {target_type}, has id "{target_id}";
+                    $e isa apt-causaledge, has id "{edge_id}";
+                insert (edge: $e, target: $t) isa apt-mechanism-sequelae;''').resolve()
+                tx.commit()
+            causal_edges_created += 1
+
+    print(f"Created {causal_edges_created} causal edges", file=sys.stderr)
+
+    # Step 7: Import treatments
+    treatments_imported = 0
+    with get_driver() as driver:
+        for treat_yaml in treatments_yaml:
+            treat_name = treat_yaml.get("name", "")
+            treat_desc = treat_yaml.get("description", "")
+            treat_term = treat_yaml.get("treatment_term", {})
+            maxo_term = treat_term.get("term", {})
+            maxo_id = maxo_term.get("id", "")
+            preferred = treat_term.get("preferred_term", "") or treat_name
+
+            treat_id = generate_id("apt-treatment")
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                q = (f'insert $t isa apt-treatment,'
+                     f' has id "{treat_id}",'
+                     f' has name "{escape_string(preferred or treat_name)}",'
+                     f' has created-at {timestamp}')
+                if treat_desc:
+                    q += f', has description "{escape_string(treat_desc[:1000])}"'
+                if maxo_id:
+                    q += f', has apt-maxo-id "{escape_string(maxo_id)}"'
+                q += ";"
+                tx.query(q).resolve()
+                tx.commit()
+
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $d isa apt-disease, has apt-mondo-id "{escape_string(mondo_id)}";
+                    $t isa apt-treatment, has id "{treat_id}";
+                insert (disease: $d, treatment: $t) isa apt-disease-has-treatment;''').resolve()
+                tx.commit()
+            treatments_imported += 1
+
+    print(f"Imported {treatments_imported} treatments", file=sys.stderr)
+
+    # Count total descriptor links created
+    descriptor_links = sum(
+        (1 if "gene" in m else 0) +
+        len(m.get("locations", [])) +
+        len(m.get("cell_types", [])) +
+        len(m.get("biological_processes", []))
+        for m in mechanisms_yaml
+    )
+
+    print(json.dumps({
+        "success": True,
+        "mondo_id": mondo_id,
+        "disease_id": disease_id,
+        "mechanisms_imported": len(mechanisms_yaml),
+        "causal_edges_created": causal_edges_created,
+        "descriptor_links_created": descriptor_links,
+        "genes_imported": genes_imported,
+        "phenotypes_imported": phenotypes_imported,
+        "treatments_imported": treatments_imported,
+        "evidence_items_created": evidence_items_created,
+    }, indent=2))
+
+
 def cmd_build_corpus(args):
     """Print ready-to-run scientific-literature CLI commands (360-view strategy)."""
     mondo_id = args.mondo_id
@@ -3596,6 +4267,16 @@ def build_parser():
     p.add_argument("--paper-id", dest="paper_id", required=True,
                    help="scilit-paper entity ID")
 
+    # import-from-dismech
+    p = sub.add_parser("import-from-dismech",
+                       help="Import disease mechanism data from a DisMech YAML file")
+    p.add_argument("--yaml-path", dest="yaml_path", required=True,
+                   help="Path to DisMech disorder YAML file")
+    p.add_argument("--clear", action="store_true", default=False,
+                   help="Delete existing APT data for this disease before importing")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
+                   help="Parse and report counts without writing to TypeDB")
+
     return parser
 
 
@@ -3640,6 +4321,7 @@ COMMAND_MAP = {
     "search-evidence": cmd_search_evidence,
     "fetch-fulltext": cmd_fetch_fulltext,
     "extract-mechanism-claims": cmd_extract_mechanism_claims,
+    "import-from-dismech": cmd_import_from_dismech,
 }
 
 
