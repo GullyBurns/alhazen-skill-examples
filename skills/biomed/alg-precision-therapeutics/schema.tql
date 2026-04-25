@@ -123,6 +123,46 @@ attribute apt-hypothesis-status, value string;
 attribute apt-support-type, value string;
 attribute apt-evidence-source, value string;
 
+# -----------------------------------------------------------------------------
+# ATTRIBUTE TYPES - DisMech descriptor / evidence alignment
+# -----------------------------------------------------------------------------
+
+attribute apt-preferred-term, value string;
+# Canonical label for a descriptor (e.g. "FBN1", "aorta", "autophagy")
+
+attribute apt-cl-id, value string;
+# Cell Ontology term ID (e.g. "CL:0000115")
+
+attribute apt-uberon-id, value string;
+# UBERON anatomical entity ID (e.g. "UBERON:0000947")
+
+attribute apt-go-id, value string;
+# Gene Ontology term ID (e.g. "GO:0006915")
+
+attribute apt-maxo-id, value string;
+# Medical Action Ontology ID (e.g. "MAXO:0000186")
+
+attribute apt-modifier, value string;
+# Functional modifier on a descriptor link: INCREASED|DECREASED|ABNORMAL|DYSREGULATED|ABSENT
+
+attribute apt-reference, value string;
+# PMID or DOI of a literature reference
+
+attribute apt-reference-title, value string;
+# Full title of the referenced paper
+
+attribute apt-snippet, value string;
+# Exact quoted text from the referenced paper
+
+attribute apt-explanation, value string;
+# Explanation of why the evidence supports/refutes the claim
+
+attribute apt-intermediate-mechanisms, value string;
+# Comma-separated list of intermediate mechanism names (for indirect causal links)
+
+attribute apt-phenotype-category, value string;
+# HPO system category: Cardiovascular|Musculoskeletal|Eye|Respiratory|Growth|...
+
 
 # -----------------------------------------------------------------------------
 # COLLECTION TYPES
@@ -163,7 +203,9 @@ entity apt-disease sub domain-thing,
     plays apt-trial-studies:disease,
     plays apt-biomarker-for:disease,
     plays apt-model-recapitulates:disease,
-    plays apt-investigation-for-disease:disease;
+    plays apt-investigation-for-disease:disease,
+    plays apt-disease-has-treatment:disease,
+    plays apt-evidence:subject;
 
 # APT-GENE - A gene implicated in the disease
 entity apt-gene sub domain-thing,
@@ -203,7 +245,15 @@ entity apt-mechanism sub domain-thing,
     plays apt-strategy-targets-mechanism:mechanism,
     plays apt-mechanism-causes:cause,
     plays apt-mechanism-causes:effect,
-    plays apt-hypothesis-groups-mechanism:mechanism;
+    plays apt-hypothesis-groups-mechanism:mechanism,
+    plays apt-mechanism-gene-link:mechanism,
+    plays apt-mechanism-location-link:mechanism,
+    plays apt-mechanism-celltype-link:mechanism,
+    plays apt-mechanism-process-link:mechanism,
+    plays apt-mechanism-downstream:cause,
+    plays apt-mechanism-sequelae:target,
+    plays apt-evidence:subject,
+    plays apt-treatment-targets-mechanism:mechanism;
 
 # APT-PATHWAY - Biological pathway implicated in disease mechanism
 entity apt-pathway sub domain-thing,
@@ -216,8 +266,11 @@ entity apt-pathway sub domain-thing,
 entity apt-phenotype sub domain-thing,
     owns apt-hpo-id,
     owns apt-hpo-label,
+    owns apt-phenotype-category,
     plays apt-disease-has-phenotype:phenotype,
-    plays apt-mechanism-causes-phenotype:phenotype;
+    plays apt-mechanism-causes-phenotype:phenotype,
+    plays apt-mechanism-sequelae:target,
+    plays apt-evidence:subject;
 
 # APT-VARIANT - A genomic variant (optional, for cohort tracking)
 entity apt-variant sub domain-thing,
@@ -519,6 +572,116 @@ relation apt-mechanism-causes,
 relation apt-hypothesis-groups-mechanism,
     relates hypothesis,
     relates mechanism;
+
+
+# -----------------------------------------------------------------------------
+# RELATION TYPES - DisMech-aligned descriptor and evidence relations
+# (defined before entities that play roles in them)
+# -----------------------------------------------------------------------------
+
+# APT-EVIDENCE - Any domain entity can have evidenceitems attached
+relation apt-evidence,
+    relates subject,
+    relates item;
+
+# APT-MECHANISM-GENE-LINK - Mechanism linked to a gene descriptor
+relation apt-mechanism-gene-link,
+    owns apt-modifier,
+    relates mechanism,
+    relates gene-descriptor;
+
+# APT-MECHANISM-LOCATION-LINK - Mechanism linked to an anatomical location descriptor
+relation apt-mechanism-location-link,
+    owns apt-modifier,
+    relates mechanism,
+    relates location;
+
+# APT-MECHANISM-CELLTYPE-LINK - Mechanism linked to a cell type descriptor
+relation apt-mechanism-celltype-link,
+    owns apt-modifier,
+    relates mechanism,
+    relates cell-type;
+
+# APT-MECHANISM-PROCESS-LINK - Mechanism linked to a GO biological process descriptor
+relation apt-mechanism-process-link,
+    owns apt-modifier,
+    relates mechanism,
+    relates process;
+
+# APT-MECHANISM-DOWNSTREAM - Reified causal link: mechanism -> causaledge
+relation apt-mechanism-downstream,
+    relates cause,
+    relates edge;
+
+# APT-MECHANISM-SEQUELAE - Causal edge -> target (phenotype OR another mechanism)
+relation apt-mechanism-sequelae,
+    relates edge,
+    relates target;
+
+# APT-DISEASE-HAS-TREATMENT - Disease is associated with a MAXO treatment
+relation apt-disease-has-treatment,
+    relates disease,
+    relates treatment;
+
+# APT-TREATMENT-TARGETS-MECHANISM - Treatment addresses a specific mechanism
+relation apt-treatment-targets-mechanism,
+    relates treatment,
+    relates mechanism;
+
+
+# -----------------------------------------------------------------------------
+# ENTITY TYPES - DisMech descriptor entities (ontology term references)
+# -----------------------------------------------------------------------------
+
+# APT-GENE-DESCRIPTOR - A gene referenced by a mechanism (by symbol + HGNC ID)
+entity apt-gene-descriptor sub domain-thing,
+    owns apt-preferred-term,
+    owns apt-hgnc-id,
+    plays apt-mechanism-gene-link:gene-descriptor;
+
+# APT-ANATOMICALDESCRIPTOR - An anatomical entity referenced by a mechanism (UBERON)
+entity apt-anatomicaldescriptor sub domain-thing,
+    owns apt-preferred-term,
+    owns apt-uberon-id,
+    plays apt-mechanism-location-link:location;
+
+# APT-CELLTYPEDESCRIPTOR - A cell type referenced by a mechanism (CL)
+entity apt-celltypedescriptor sub domain-thing,
+    owns apt-preferred-term,
+    owns apt-cl-id,
+    plays apt-mechanism-celltype-link:cell-type;
+
+# APT-BIOLOGICALDESCRIPTOR - A biological process referenced by a mechanism (GO)
+entity apt-biologicaldescriptor sub domain-thing,
+    owns apt-preferred-term,
+    owns apt-go-id,
+    plays apt-mechanism-process-link:process;
+
+# APT-EVIDENCEITEM - Domain-layer evidence record (DisMech-aligned, PMID-backed)
+# Sits in domain layer; scilit-extraction-note attaches via aboutness:subject (inherited)
+entity apt-evidenceitem sub domain-thing,
+    owns apt-reference,
+    owns apt-reference-title,
+    owns apt-support-type,
+    owns apt-evidence-source,
+    owns apt-snippet,
+    owns apt-explanation,
+    plays apt-evidence:item,
+    plays apt-evidence:subject;
+
+# APT-CAUSALEDGE - Reified causal link between two mechanisms (DisMech: causaledge)
+entity apt-causaledge sub domain-thing,
+    owns apt-causal-link-type,
+    owns apt-intermediate-mechanisms,
+    plays apt-mechanism-downstream:edge,
+    plays apt-mechanism-sequelae:edge,
+    plays apt-evidence:subject;
+
+# APT-TREATMENT - A MAXO-coded therapeutic intervention (DisMech: treatment)
+entity apt-treatment sub domain-thing,
+    owns apt-maxo-id,
+    plays apt-disease-has-treatment:treatment,
+    plays apt-treatment-targets-mechanism:treatment;
 
 
 # =============================================================================
