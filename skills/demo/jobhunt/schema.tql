@@ -14,14 +14,11 @@ define
 
 # URL attributes
 attribute job-url, value string;
-attribute company-url, value string;
 attribute resource-url, value string;
-attribute linkedin-url, value string;
 
 # Position attributes
 attribute short-name, value string;
 attribute salary-range, value string;
-attribute location, value string;
 attribute remote-policy, value string;
 attribute team-size, value string;
 
@@ -56,10 +53,6 @@ attribute contact-email, value string;
 # Fit analysis
 attribute fit-score, value double;
 attribute fit-summary, value string;
-
-# Interaction tracking
-attribute interaction-type, value string;
-attribute interaction-date, value datetime;
 
 # Priority
 attribute priority-level, value string;
@@ -109,14 +102,6 @@ relation source-provides,
     relates source,
     relates candidate;
 
-# WORKS-AT - Contacts working at companies
-relation works-at,
-    owns valid-from,
-    owns valid-until,
-    relates employee,
-    relates employer;
-
-
 # -----------------------------------------------------------------------------
 # ENTITY TYPES - Job Hunting Collections
 # -----------------------------------------------------------------------------
@@ -160,13 +145,9 @@ entity jobhunt-candidate sub domain-thing,
     owns triage-reason,
     plays source-provides:candidate;
 
-# JOBHUNT-COMPANY - An organization/employer
-entity jobhunt-company sub domain-thing,
-    owns company-url,
-    owns linkedin-url,
-    owns location,
+# JOBHUNT-COMPANY - An organization in the job search context
+entity jobhunt-company sub organization,
     plays position-at-company:employer,
-    plays works-at:employer,
     plays opportunity-at-organization:organization;
 
 # JOBHUNT-OPPORTUNITY - Base supertype for all trackable career opportunities
@@ -211,12 +192,10 @@ entity jobhunt-learning-resource sub domain-thing,
     owns completion-status,
     plays addresses-requirement:resource;
 
-# JOBHUNT-CONTACT - A person at a company
-entity jobhunt-contact sub agent,
+# JOBHUNT-CONTACT - A person in the job search process (recruiter, hiring manager, etc.)
+entity jobhunt-contact sub person,
     owns contact-role,
-    owns contact-email,
-    owns linkedin-url,
-    plays works-at:employee;
+    owns contact-email;
 
 
 # -----------------------------------------------------------------------------
