@@ -666,6 +666,8 @@ def cmd_add_note(args):
         "fit-analysis": "jobhunt-fit-analysis-note",
         "interaction": "jobhunt-interaction-note",
         "application": "jobhunt-application-note",
+        "cc-brief": "jobhunt-cc-brief-note",
+        "cc-feedback": "jobhunt-cc-feedback-note",
         "general": "note",
     }
 
@@ -1141,6 +1143,20 @@ def cmd_update_opportunity(args):
     print(json.dumps({"success": True, "id": args.id, "updates": dict(updates)}))
 
 
+# Shared note subtype → attribute map used by cmd_show_opportunity and cmd_show_position
+NOTE_TYPE_ATTRS = {
+    "jobhunt-application-note": ["id", "name", "content", "application-status", "applied-date", "response-date"],
+    "jobhunt-fit-analysis-note": ["id", "name", "content", "fit-score", "fit-summary"],
+    "jobhunt-interview-note": ["id", "name", "content", "interview-date"],
+    "jobhunt-interaction-note": ["id", "name", "content", "interaction-type", "interaction-date"],
+    "jobhunt-research-note": ["id", "name", "content"],
+    "jobhunt-strategy-note": ["id", "name", "content"],
+    "jobhunt-skill-gap-note": ["id", "name", "content"],
+    "jobhunt-cc-brief-note": ["id", "name", "content"],
+    "jobhunt-cc-feedback-note": ["id", "name", "content"],
+}
+
+
 def cmd_show_opportunity(args):
     """Show details for any opportunity subtype."""
     with get_driver() as driver:
@@ -1218,12 +1234,87 @@ def cmd_show_opportunity(args):
             fetch {{ "id": $c.id, "name": $c.name }};'''
             company_results = list(tx.query(company_q).resolve())
 
-            # Get notes
-            notes_q = f'''match
+            # Get notes (per-subtype for type preservation)
+            notes_results = []
+            for note_type, attrs in NOTE_TYPE_ATTRS.items():
+                fetch_fields = ", ".join(f'"{a}": $n.{a}' for a in attrs)
+                nq = f'''match
+                    $o isa jobhunt-opportunity, has id "{args.id}";
+                    (note: $n, subject: $o) isa aboutness;
+                    $n isa {note_type};
+                fetch {{ {fetch_fields} }};'''
+                try:
+                    for row in tx.query(nq).resolve():
+                        row["type"] = note_type
+                        notes_results.append(row)
+                except Exception:
+                    pass
+
+            # Catch generic notes not covered by subtypes
+            try:
+                generic_q = f'''match
+                    $o isa jobhunt-opportunity, has id "{args.id}";
+                    (note: $n, subject: $o) isa aboutness;
+                    $n isa! note;
+                fetch {{ "id": $n.id, "name": $n.name, "content": $n.content }};'''
+                for row in tx.query(generic_q).resolve():
+                    row["type"] = "note"
+                    notes_results.append(row)
+            except Exception:
+                pass
+
+            # Get contacts linked to this opportunity
+            contacts_by_id = {}
+            try:
+                interaction_contacts = list(tx.query(f'''match
+                    $o isa jobhunt-opportunity, has id "{args.id}";
+                    (note: $n, subject: $o) isa aboutness;
+                    $n isa jobhunt-interaction-note;
+                    (note: $n, subject: $person) isa aboutness;
+                    $person isa jobhunt-contact;
+                fetch {{
+                    "id": $person.id,
+                    "name": $person.name,
+                    "contact-role": $person.contact-role,
+                    "contact-email": $person.contact-email
+                }};''').resolve())
+                for c in interaction_contacts:
+                    cid = c.get("id")
+                    if cid and cid not in contacts_by_id:
+                        contacts_by_id[cid] = c
+            except Exception:
+                pass
+
+            try:
+                company_contacts = list(tx.query(f'''match
+                    $o isa jobhunt-opportunity, has id "{args.id}";
+                    (opportunity: $o, organization: $c) isa opportunity-at-organization;
+                    (employee: $person, employer: $c) isa works-at;
+                    $person isa jobhunt-contact;
+                fetch {{
+                    "id": $person.id,
+                    "name": $person.name,
+                    "contact-role": $person.contact-role,
+                    "contact-email": $person.contact-email
+                }};''').resolve())
+                for c in company_contacts:
+                    cid = c.get("id")
+                    if cid and cid not in contacts_by_id:
+                        contacts_by_id[cid] = c
+            except Exception:
+                pass
+
+            contacts_result = list(contacts_by_id.values())
+
+            # Get tags
+            tags_query = f'''match
                 $o isa jobhunt-opportunity, has id "{args.id}";
-                (note: $n, subject: $o) isa aboutness;
-            fetch {{ "id": $n.id, "name": $n.name, "content": $n.content }};'''
-            notes_results = list(tx.query(notes_q).resolve())
+                (tagged-entity: $o, tag: $t) isa tagging;
+            fetch {{ "name": $t.name }};'''
+            try:
+                tags_result = list(tx.query(tags_query).resolve())
+            except Exception:
+                tags_result = []
 
             # Get background reading collections
             bg_cols = list(tx.query(f'''
@@ -1257,6 +1348,8 @@ def cmd_show_opportunity(args):
         "opportunity": opp,
         "company": company_results[0] if company_results else None,
         "notes": notes_results,
+        "contacts": contacts_result,
+        "tags": [t.get("name") for t in tags_result],
         "background_reading": background_reading,
     }, indent=2, default=str))
 
@@ -1329,6 +1422,128 @@ def cmd_list_opportunities(args):
         "opportunities": opportunities,
         "count": len(opportunities),
     }, indent=2))
+
+
+def cmd_list_attention(args):
+    """List opportunities needing attention with triage metrics."""
+    from datetime import datetime, timezone
+
+    opp_types = {
+        "position": "jobhunt-position",
+        "engagement": "jobhunt-engagement",
+        "venture": "jobhunt-venture",
+        "lead": "jobhunt-lead",
+    }
+
+    filter_types = list(opp_types.values())
+    if args.type and args.type != "all":
+        filter_types = [opp_types[args.type]]
+
+    results = []
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            for otype in filter_types:
+                type_label = [k for k, v in opp_types.items() if v == otype][0]
+
+                opps = list(tx.query(f'''match $o isa {otype};
+                    fetch {{
+                        "id": $o.id,
+                        "name": $o.name,
+                        "opportunity-status": $o.opportunity-status,
+                        "priority-level": $o.priority-level,
+                        "deadline": $o.deadline
+                    }};''').resolve())
+
+                for opp in opps:
+                    oid = opp.get("id")
+                    if not oid:
+                        continue
+
+                    item = {
+                        "id": oid,
+                        "name": opp.get("name"),
+                        "type": type_label,
+                        "status": opp.get("opportunity-status"),
+                        "priority": opp.get("priority-level"),
+                        "deadline": opp.get("deadline"),
+                        "latest_cc_brief": None,
+                        "pending_feedback_count": 0,
+                        "days_since_last_touch": None,
+                        "company": None,
+                    }
+
+                    # Get company
+                    try:
+                        co = list(tx.query(f'''match
+                            $o isa {otype}, has id "{oid}";
+                            (opportunity: $o, organization: $c) isa opportunity-at-organization;
+                        fetch {{ "name": $c.name }};''').resolve())
+                        if co:
+                            item["company"] = co[0].get("name")
+                    except Exception:
+                        pass
+
+                    # Get latest note created-at (any type) for days_since_last_touch
+                    try:
+                        notes_dates = list(tx.query(f'''match
+                            $o isa {otype}, has id "{oid}";
+                            (note: $n, subject: $o) isa aboutness;
+                            $n has created-at $dt;
+                        fetch {{ "dt": $dt }};''').resolve())
+                        if notes_dates:
+                            dates = [str(n["dt"]) for n in notes_dates if n.get("dt")]
+                            if dates:
+                                latest = max(dates)
+                                try:
+                                    latest_dt = datetime.fromisoformat(latest.replace("Z", "+00:00"))
+                                    now = datetime.now(timezone.utc)
+                                    item["days_since_last_touch"] = (now - latest_dt).days
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+                    # Get latest cc-brief timestamp
+                    try:
+                        briefs = list(tx.query(f'''match
+                            $o isa {otype}, has id "{oid}";
+                            (note: $n, subject: $o) isa aboutness;
+                            $n isa jobhunt-cc-brief-note, has created-at $dt;
+                        fetch {{ "dt": $dt }};''').resolve())
+                        if briefs:
+                            brief_dates = [str(b["dt"]) for b in briefs if b.get("dt")]
+                            if brief_dates:
+                                item["latest_cc_brief"] = max(brief_dates)
+                    except Exception:
+                        pass
+
+                    # Count feedback notes newer than latest brief
+                    if item["latest_cc_brief"]:
+                        try:
+                            feedback = list(tx.query(f'''match
+                                $o isa {otype}, has id "{oid}";
+                                (note: $n, subject: $o) isa aboutness;
+                                $n isa jobhunt-cc-feedback-note, has created-at $dt;
+                                $dt > {item["latest_cc_brief"]};
+                            fetch {{ "dt": $dt }};''').resolve())
+                            item["pending_feedback_count"] = len(feedback)
+                        except Exception:
+                            pass
+
+                    results.append(item)
+
+    # Sort by priority then days_since_last_touch (most stale first)
+    priority_order = {"high": 0, "medium": 1, "low": 2, None: 3}
+    results.sort(key=lambda x: (
+        priority_order.get(x.get("priority"), 3),
+        -(x.get("days_since_last_touch") or 0),
+    ))
+
+    print(json.dumps({
+        "success": True,
+        "opportunities": results,
+        "count": len(results),
+    }, indent=2, default=str))
 
 
 def cmd_list_pipeline(args):
@@ -1446,15 +1661,6 @@ def cmd_show_position(args):
 
             # Query each note subtype separately so we can return type
             # labels and type-specific attributes for the dashboard
-            NOTE_TYPE_ATTRS = {
-                "jobhunt-application-note": ["id", "name", "content", "application-status", "applied-date", "response-date"],
-                "jobhunt-fit-analysis-note": ["id", "name", "content", "fit-score", "fit-summary"],
-                "jobhunt-interview-note": ["id", "name", "content", "interview-date"],
-                "jobhunt-interaction-note": ["id", "name", "content", "interaction-type", "interaction-date"],
-                "jobhunt-research-note": ["id", "name", "content"],
-                "jobhunt-strategy-note": ["id", "name", "content"],
-                "jobhunt-skill-gap-note": ["id", "name", "content"],
-            }
             notes_result = []
             for ntype, attr_list in NOTE_TYPE_ATTRS.items():
                 attr_fetch = ", ".join(f'"{a}": $n.{a}' for a in attr_list)
@@ -1495,6 +1701,51 @@ def cmd_show_position(args):
             fetch {{ "name": $t.name }};'''
             tags_result = list(tx.query(tags_query).resolve())
 
+            # Get contacts linked to this position
+            # Path 1: contacts mentioned in interaction notes about this position
+            contacts_by_id = {}
+            try:
+                interaction_contacts = list(tx.query(f'''match
+                    $p isa jobhunt-position, has id "{args.id}";
+                    (note: $n, subject: $p) isa aboutness;
+                    $n isa jobhunt-interaction-note;
+                    (note: $n, subject: $person) isa aboutness;
+                    $person isa jobhunt-contact;
+                fetch {{
+                    "id": $person.id,
+                    "name": $person.name,
+                    "contact-role": $person.contact-role,
+                    "contact-email": $person.contact-email
+                }};''').resolve())
+                for c in interaction_contacts:
+                    cid = c.get("id")
+                    if cid and cid not in contacts_by_id:
+                        contacts_by_id[cid] = c
+            except Exception:
+                pass
+
+            # Path 2: contacts at the same company via works-at
+            try:
+                company_contacts = list(tx.query(f'''match
+                    $p isa jobhunt-position, has id "{args.id}";
+                    (position: $p, employer: $c) isa position-at-company;
+                    (employee: $person, employer: $c) isa works-at;
+                    $person isa jobhunt-contact;
+                fetch {{
+                    "id": $person.id,
+                    "name": $person.name,
+                    "contact-role": $person.contact-role,
+                    "contact-email": $person.contact-email
+                }};''').resolve())
+                for c in company_contacts:
+                    cid = c.get("id")
+                    if cid and cid not in contacts_by_id:
+                        contacts_by_id[cid] = c
+            except Exception:
+                pass
+
+            contacts_result = list(contacts_by_id.values())
+
             # Get background reading collections
             bg_cols = list(tx.query(f'''
                 match $p isa jobhunt-position, has id "{args.id}";
@@ -1529,6 +1780,7 @@ def cmd_show_position(args):
         "requirements": req_result,
         "job_description": artifact_result[0] if artifact_result else None,
         "tags": [t.get("name") for t in tags_result],
+        "contacts": contacts_result,
         "background_reading": background_reading,
     }
 
@@ -2624,6 +2876,8 @@ def main():
             "fit-analysis",
             "interaction",
             "application",
+            "cc-brief",
+            "cc-feedback",
             "general",
         ],
         help="Note type",
@@ -2774,6 +3028,23 @@ def main():
     p.add_argument("--status", help="Filter by opportunity status")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Filter by priority")
 
+    # list-attention
+    p_attention = subparsers.add_parser(
+        "list-attention",
+        help="List opportunities needing attention with triage metrics",
+    )
+    p_attention.add_argument(
+        "--type",
+        choices=["position", "engagement", "venture", "lead", "all"],
+        default="all",
+        help="Filter by opportunity type",
+    )
+    p_attention.add_argument(
+        "--since",
+        help="Only show opportunities touched since date (YYYY-MM-DD)",
+    )
+    p_attention.set_defaults(func=cmd_list_attention)
+
     # list-pipeline
     p = subparsers.add_parser("list-pipeline", help="Show application pipeline")
     p.add_argument("--status", help="Filter by status")
@@ -2857,6 +3128,7 @@ def main():
         "update-opportunity": cmd_update_opportunity,
         "show-opportunity": cmd_show_opportunity,
         "list-opportunities": cmd_list_opportunities,
+        "list-attention": cmd_list_attention,
         # Queries
         "list-pipeline": cmd_list_pipeline,
         "show-position": cmd_show_position,
