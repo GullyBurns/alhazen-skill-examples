@@ -141,15 +141,3 @@ export async function updateOpportunity(
   if (updates.priority) args.push('--priority', updates.priority);
   return runJobhunt(args);
 }
-
-export async function listAttention(type?: string) {
-  const args = ['list-attention'];
-  if (type && type !== 'all') args.push('--type', type);
-  return runJobhunt(args);
-}
-
-export async function addNote(about: string, type: string, content: string, name?: string) {
-  const args = ['add-note', '--about', about, '--type', type, '--content', content];
-  if (name) args.push('--name', name);
-  return runJobhunt(args);
-}

@@ -250,10 +250,6 @@ entity jobhunt-interaction-note sub note,
     owns interaction-type,
     owns interaction-date;
 
-# CC (Career Coach) notes -- agent-generated briefs and operator feedback
-entity jobhunt-cc-brief-note sub note;
-entity jobhunt-cc-feedback-note sub note;
-
 
 # -----------------------------------------------------------------------------
 # CROSS-NAMESPACE EXTENSIONS

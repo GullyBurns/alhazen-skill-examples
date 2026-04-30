@@ -30,9 +30,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Compass,
-  Zap,
 } from 'lucide-react';
-import { TriageInbox } from '@/components/jobhunt/triage-inbox';
 
 interface Position {
   id: string;
@@ -75,8 +73,6 @@ export default function Dashboard() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [opportunitiesLoading, setOpportunitiesLoading] = useState(false);
   const [opportunitiesLoaded, setOpportunitiesLoaded] = useState(false);
-  const [attentionItems, setAttentionItems] = useState<any[]>([]);
-  const [attentionLoading, setAttentionLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
@@ -249,25 +245,7 @@ export default function Dashboard() {
     await handleCandidateAction(id, 'dismiss');
   };
 
-  const fetchAttention = useCallback(async () => {
-    setAttentionLoading(true);
-    try {
-      const res = await fetch('/api/jobhunt/attention');
-      const data = await res.json();
-      if (data.success) {
-        setAttentionItems(data.opportunities || []);
-      }
-    } catch (e) {
-      console.error('Failed to fetch attention:', e);
-    } finally {
-      setAttentionLoading(false);
-    }
-  }, []);
-
   const handleTabChange = (value: string) => {
-    if (value === 'mission-control' && attentionItems.length === 0) {
-      fetchAttention();
-    }
     if (value === 'candidates' && candidates.length === 0) {
       fetchCandidates();
     }
@@ -278,9 +256,6 @@ export default function Dashboard() {
       fetchAllTriaged(0);
     }
   };
-
-  // Load attention data on mount
-  useEffect(() => { fetchAttention(); }, [fetchAttention]);
 
   const totalPages = Math.max(1, Math.ceil(allTriagedTotal / ALL_TRIAGED_PAGE_SIZE));
 
@@ -376,12 +351,8 @@ export default function Dashboard() {
         </div>
 
         {/* Main Content Tabs */}
-        <Tabs defaultValue="mission-control" className="space-y-4" onValueChange={handleTabChange}>
+        <Tabs defaultValue="pipeline" className="space-y-4" onValueChange={handleTabChange}>
           <TabsList>
-            <TabsTrigger value="mission-control" className="flex items-center gap-2">
-              <Zap className="w-4 h-4" />
-              Mission Control
-            </TabsTrigger>
             <TabsTrigger value="pipeline" className="flex items-center gap-2">
               <Kanban className="w-4 h-4" />
               Pipeline
@@ -407,17 +378,6 @@ export default function Dashboard() {
               All Triaged
             </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="mission-control">
-            {attentionLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="animate-spin mr-2" size={16} />
-                Loading...
-              </div>
-            ) : (
-              <TriageInbox items={attentionItems} />
-            )}
-          </TabsContent>
 
           <TabsContent value="pipeline">
             {loading ? (
