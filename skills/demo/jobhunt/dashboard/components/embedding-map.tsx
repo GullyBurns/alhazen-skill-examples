@@ -21,16 +21,15 @@ interface EmbeddingMapProps {
   onSelect: (ids: string[]) => void;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  interviewing: '#5aadaf',
-  applied: '#5b8ab8',
-  researching: '#8ba4b8',
-  withdrawn: '#5e7387',
-  rejected: '#5e7387',
+const TYPE_COLORS: Record<string, string> = {
+  position: '#5aadaf',
+  engagement: '#5b8ab8',
+  venture: '#b8c84a',
+  lead: '#62c4bc',
 };
 
-function getStatusColor(status: string): string {
-  return STATUS_COLORS[status] || '#5e7387';
+function getTypeColor(type: string): string {
+  return TYPE_COLORS[type] || '#5e7387';
 }
 
 function getPriorityRadius(priority: string | null): number {
@@ -81,7 +80,7 @@ export function EmbeddingMap({ items, selectedIds, onSelect }: EmbeddingMapProps
         Plot.dot(items, {
           x: 'x',
           y: 'y',
-          fill: (d: MapItem) => getStatusColor(d.status),
+          fill: (d: MapItem) => getTypeColor(d.type),
           r: (d: MapItem) => getPriorityRadius(d.priority),
           stroke: (d: MapItem) => selectedIds.has(d.id) ? '#b8c84a' : 'none',
           strokeWidth: (d: MapItem) => selectedIds.has(d.id) ? 2 : 0,

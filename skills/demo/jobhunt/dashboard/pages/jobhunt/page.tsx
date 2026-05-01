@@ -8,6 +8,7 @@ export default function MissionControl() {
   const [items, setItems] = useState<MapItem[]>([]);
   const [excludeIds, setExcludeIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [filteredIds, setFilteredIds] = useState<Set<string> | null>(null); // null = no filter active
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -33,7 +34,13 @@ export default function MissionControl() {
     fetchItems();
   }, [fetchItems]);
 
-  const visibleIds = new Set(items.filter(item => !excludeIds.has(item.id)).map(item => item.id));
+  // visibleIds: not excluded AND passes list filters (if any active)
+  const visibleIds = new Set(
+    items
+      .filter(item => !excludeIds.has(item.id))
+      .filter(item => !filteredIds || filteredIds.has(item.id))
+      .map(item => item.id)
+  );
   const visibleItems = items.filter(item => visibleIds.has(item.id));
 
   // Status counts
@@ -50,9 +57,21 @@ export default function MissionControl() {
     setExpandedId(prev => prev === id ? null : id);
   }, []);
 
+  const handleFilterChange = useCallback((ids: Set<string>) => {
+    // If the filter set matches all non-excluded items, treat as "no filter"
+    const allNonExcluded = items.filter(i => !excludeIds.has(i.id));
+    if (ids.size === allNonExcluded.length) {
+      setFilteredIds(null);
+    } else {
+      setFilteredIds(ids);
+    }
+    setSelectedIds(new Set()); // clear selection when filter changes
+  }, [items, excludeIds]);
+
   const handleReset = useCallback(() => {
     setExcludeIds(new Set());
     setSelectedIds(new Set());
+    setFilteredIds(null);
     fetchItems();
   }, [fetchItems]);
 
@@ -270,9 +289,10 @@ export default function MissionControl() {
         <div style={{ flex: 1, minHeight: 0 }}>
           <OpportunityList
             items={items}
-            visibleIds={visibleIds}
+            visibleIds={new Set(items.filter(i => !excludeIds.has(i.id)).map(i => i.id))}
             selectedId={expandedId}
             onSelect={handleListSelect}
+            onFilterChange={handleFilterChange}
           />
         </div>
       </div>

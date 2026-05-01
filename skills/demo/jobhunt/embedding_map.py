@@ -236,6 +236,17 @@ def cmd_map(args):
         print(json.dumps({"success": True, "items": items, "count": len(items)}))
         return
 
+    # Load seed coordinates from file (cached from previous run)
+    seed_coords = {}
+    seed_file = os.path.join(os.path.dirname(__file__), ".embedding-map-cache.json")
+    if os.path.exists(seed_file):
+        try:
+            with open(seed_file) as f:
+                cached = json.load(f)
+            seed_coords = {item["id"]: (item["x"], item["y"]) for item in cached.get("items", [])}
+        except Exception:
+            pass
+
     # Extract vectors and run PyMDE
     import pymde
     import torch
@@ -243,7 +254,29 @@ def cmd_map(args):
     vectors = np.array([p.vector for p in filtered])
     tensor = torch.FloatTensor(vectors)
 
-    mde = pymde.preserve_neighbors(tensor, embedding_dim=2, constraint=pymde.Standardized())
+    # Build initial embedding from cached positions (if available)
+    init = None
+    if seed_coords:
+        init_list = []
+        has_seed = True
+        for p in filtered:
+            oid = p.payload["opp_id"]
+            if oid in seed_coords:
+                init_list.append(seed_coords[oid])
+            else:
+                has_seed = False
+                break
+        if has_seed and len(init_list) == len(filtered):
+            init = torch.FloatTensor(init_list)
+
+    mde = pymde.preserve_neighbors(
+        tensor,
+        embedding_dim=2,
+        constraint=pymde.Standardized(),
+        repulsive_fraction=0.7,
+        n_neighbors=min(5, len(filtered) - 1),
+        init=init if init is not None else "random",
+    )
     embedding_2d = mde.embed().cpu().numpy()
 
     # Build output
@@ -256,7 +289,16 @@ def cmd_map(args):
             "y": float(embedding_2d[i, 1]),
         })
 
-    print(json.dumps({"success": True, "items": items, "count": len(items)}, default=str))
+    result = {"success": True, "items": items, "count": len(items)}
+
+    # Cache coordinates for next run (seed for stability)
+    try:
+        with open(seed_file, "w") as f:
+            json.dump(result, f)
+    except Exception:
+        pass
+
+    print(json.dumps(result, default=str))
 
 
 def cmd_embed_and_map(args):
