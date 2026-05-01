@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export interface MapItem {
   id: string;
@@ -66,6 +67,7 @@ function getStatusSort(s: string): number {
 
 export function OpportunityList({ items, visibleIds, selectedId, onSelect }: OpportunityListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const router = useRouter();
 
   const visible = items
     .filter(item => visibleIds.has(item.id))
@@ -201,6 +203,26 @@ export function OpportunityList({ items, visibleIds, selectedId, onSelect }: Opp
                 {item.notes_count !== undefined && (
                   <div><span style={{ color: '#5e7387' }}>Notes:</span> {item.notes_count}</div>
                 )}
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    router.push(`/jobhunt/opportunity/${item.id}`);
+                  }}
+                  style={{
+                    marginTop: '6px',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: '11px',
+                    color: '#5aadaf',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#b8c84a'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = '#5aadaf'; }}
+                >
+                  View dossier →
+                </div>
               </div>
             )}
           </div>

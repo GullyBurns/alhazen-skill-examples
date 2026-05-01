@@ -4,80 +4,90 @@ import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import {
-  ArrowLeft,
-  BookOpen,
-  Building2,
-  ExternalLink,
-  RefreshCw,
-  FileText,
-  Briefcase,
-  Rocket,
-  Users,
-  DollarSign,
-  TrendingUp,
-} from 'lucide-react';
 
-const PRIORITY_COLORS: Record<string, string> = {
-  high: 'bg-red-500/20 text-red-400 border-red-500/30',
-  medium: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  low: 'bg-green-500/20 text-green-400 border-green-500/30',
+/* ── Starry Night palette ── */
+const T = {
+  bg: '#070d1c',
+  bgRaised: '#0c1628',
+  panel: 'rgba(12,22,40,0.72)',
+  fg: '#c8dde8',
+  fgDim: '#8ba4b8',
+  fgFaint: '#5e7387',
+  teal: '#5aadaf',
+  blue: '#5b8ab8',
+  olive: '#b8c84a',
+  mint: '#62c4bc',
+  rust: '#c87a4a',
+  border: 'rgba(90,173,175,0.18)',
+  borderDim: 'rgba(200,221,232,0.08)',
+  mono: "'JetBrains Mono', monospace",
+  serif: "'DM Serif Display', serif",
+  sans: "'DM Sans', sans-serif",
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  active: 'bg-green-500/20 text-green-400 border-green-500/30',
-  warm: 'bg-green-500/20 text-green-400 border-green-500/30',
-  exploring: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  paused: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  closed: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+/* ── Note type config ── */
+const NOTE_TYPES: Record<string, { label: string; short: string; color: string }> = {
+  'jobhunt-application-note': { label: 'Application', short: 'APP', color: '#5aadaf' },
+  'jobhunt-research-note': { label: 'Research', short: 'RES', color: '#8ba4b8' },
+  'jobhunt-fit-analysis-note': { label: 'Fit analysis', short: 'FIT', color: '#62c4bc' },
+  'jobhunt-interview-note': { label: 'Interview', short: 'INT', color: '#5b8ab8' },
+  'jobhunt-interaction-note': { label: 'Interaction', short: 'TALK', color: '#5b8ab8' },
+  'jobhunt-strategy-note': { label: 'Strategy', short: 'STRAT', color: '#8ba4b8' },
+  'jobhunt-skill-gap-note': { label: 'Skill gap', short: 'GAP', color: '#c87a4a' },
+  'jobhunt-cc-brief-note': { label: 'CC brief', short: 'BRIEF', color: '#b8c84a' },
+  'jobhunt-cc-feedback-note': { label: 'Feedback', short: 'FEEDBACK', color: '#c87a4a' },
 };
 
-function statusColor(status: string | null): string {
-  if (!status) return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
-  return STATUS_COLORS[status.toLowerCase()] || 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+/* ── Kind config ── */
+const KINDS: Record<string, { label: string; short: string; color: string; showRequirements: boolean }> = {
+  'jobhunt-position': { label: 'Position', short: 'POS', color: '#5aadaf', showRequirements: true },
+  'jobhunt-engagement': { label: 'Engagement', short: 'ENG', color: '#5b8ab8', showRequirements: false },
+  'jobhunt-venture': { label: 'Venture', short: 'VEN', color: '#b8c84a', showRequirements: false },
+  'jobhunt-lead': { label: 'Lead', short: 'LED', color: '#62c4bc', showRequirements: false },
+};
+
+const LEVEL_COLORS: Record<string, string> = {
+  strong: '#62c4bc',
+  some: '#b8c84a',
+  learning: '#c87a4a',
+  none: '#5e7387',
+};
+
+function noteTypeMeta(type: string) {
+  return NOTE_TYPES[type] || { label: type.replace(/^jobhunt-/, '').replace(/-note$/, ''), short: '?', color: T.fgDim };
 }
 
-const TYPE_META: Record<string, { label: string; icon: React.ReactNode; gradient: string }> = {
-  'jobhunt-engagement': {
-    label: 'Consulting Engagement',
-    icon: <Briefcase className="w-4 h-4" />,
-    gradient: 'from-indigo-400 to-blue-400',
-  },
-  'jobhunt-venture': {
-    label: 'Venture / Advisory',
-    icon: <Rocket className="w-4 h-4" />,
-    gradient: 'from-purple-400 to-pink-400',
-  },
-  'jobhunt-lead': {
-    label: 'Networking Lead',
-    icon: <Users className="w-4 h-4" />,
-    gradient: 'from-emerald-400 to-teal-400',
-  },
-};
+function kindMeta(type: string) {
+  return KINDS[type] || KINDS['jobhunt-lead'];
+}
+
+function initials(name: string): string {
+  return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}
+
+/* ── Component ── */
 
 interface OpportunityPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function OpportunityPage({ params }: OpportunityPageProps) {
+export default function OpportunityDossierPage({ params }: OpportunityPageProps) {
   const { id } = use(params);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchOpportunity() {
+    async function load() {
       setLoading(true);
       setError(null);
       try {
         const res = await fetch(`/api/jobhunt/opportunity/${id}`);
         if (!res.ok) throw new Error('Failed to fetch opportunity');
         const json = await res.json();
+        if (!json.success) throw new Error('API returned failure');
         setData(json);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -85,274 +95,415 @@ export default function OpportunityPage({ params }: OpportunityPageProps) {
         setLoading(false);
       }
     }
-    fetchOpportunity();
+    load();
   }, [id]);
 
+  /* ── Loading ── */
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
+      <div style={{ minHeight: '100vh', background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ fontFamily: T.mono, fontSize: 14, color: T.fgDim }}>Loading...</span>
       </div>
     );
   }
 
+  /* ── Error ── */
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-background p-8">
-        <Link href="/jobhunt">
-          <Button variant="ghost" className="mb-4">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Dashboard
-          </Button>
+      <div style={{ minHeight: '100vh', background: T.bg, padding: 40 }}>
+        <Link href="/jobhunt" style={{ fontFamily: T.mono, fontSize: 13, color: T.teal, textDecoration: 'none' }}>
+          &larr; inbox
         </Link>
-        <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg">
-          <strong>Error:</strong> {error || 'Opportunity not found'}
+        <div style={{ marginTop: 24, padding: '14px 20px', background: 'rgba(200,122,74,0.12)', border: `1px solid ${T.rust}`, borderRadius: 6, color: T.rust, fontFamily: T.sans, fontSize: 14 }}>
+          {error || 'Opportunity not found'}
         </div>
       </div>
     );
   }
 
-  const opp = data.opportunity;
-  const company = data.company;
-  const notes = data.notes || [];
-  const backgroundReading = data.background_reading || [];
-  const oppType: string = data.type || '';
-  const meta = TYPE_META[oppType] || TYPE_META['jobhunt-lead'];
+  const opp = data.opportunity || {};
+  const company = data.company || {};
+  const notes: any[] = data.notes || [];
+  const requirements: any[] = data.requirements || [];
+  const contacts: any[] = data.contacts || [];
+  const tags: string[] = data.tags || [];
+  const backgroundReading: any[] = data.background_reading || [];
+  const kind = kindMeta(data.type || '');
 
-  const name = opp?.name || 'Unknown Opportunity';
-  const priority = opp?.['priority-level'];
-  const status = opp?.['opportunity-status'];
-  const description = opp?.description;
-  const deadline = opp?.deadline;
-  const companyName = company?.name || null;
-  const companyUrl = company?.['company-url'] || null;
+  /* Note type filter chips */
+  const noteTypesPresent = [...new Set(notes.map((n: any) => n.type as string))];
+  const filteredNotes = activeFilter ? notes.filter((n: any) => n.type === activeFilter) : notes;
+  const sortedNotes = [...filteredNotes].sort((a: any, b: any) => {
+    const da = a['created-at'] || '';
+    const db = b['created-at'] || '';
+    return db.localeCompare(da);
+  });
 
-  // Type-specific fields
-  const engagementType = opp?.['engagement-type'];
-  const rateInfo = opp?.['rate-info'];
-  const ventureStage = opp?.['venture-stage'];
-  const equityType = opp?.['equity-type'];
+  /* ── KV row helper ── */
+  const kvPairs: { label: string; value: string | null | undefined }[] = [
+    { label: 'Status', value: opp['opportunity-status'] },
+    { label: 'Priority', value: opp['priority-level'] },
+    { label: 'Deadline', value: opp['deadline'] },
+    { label: 'Salary', value: opp['salary-range'] },
+    { label: 'Location', value: opp['location'] },
+    { label: 'Remote', value: opp['remote-policy'] },
+  ].filter(kv => kv.value);
 
   return (
-    <div className="min-h-screen">
-      {/* Header */}
-      <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4">
-          <Link href="/jobhunt">
-            <Button variant="ghost" size="sm" className="mb-2 hover:bg-primary/10">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Dashboard
-            </Button>
-          </Link>
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Badge variant="outline" className="flex items-center gap-1 text-xs">
-                  {meta.icon}
-                  {meta.label}
-                </Badge>
+    <div style={{ minHeight: '100vh', background: T.bg, color: T.fg, fontFamily: T.sans }}>
+      {/* ── Back nav ── */}
+      <div style={{ padding: '14px 28px', borderBottom: `1px solid ${T.borderDim}` }}>
+        <Link href="/jobhunt" style={{ fontFamily: T.mono, fontSize: 13, color: T.teal, textDecoration: 'none' }}>
+          &larr; inbox
+        </Link>
+      </div>
+
+      {/* ── Header strip ── */}
+      <div style={{ background: T.bgRaised, padding: '28px 28px 22px', borderBottom: `1px solid ${T.border}` }}>
+        {/* Kind badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <span style={{
+            fontFamily: T.mono,
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 1.2,
+            color: kind.color,
+            border: `1px solid ${kind.color}`,
+            borderRadius: 4,
+            padding: '2px 8px',
+          }}>
+            {kind.short}
+          </span>
+          {company.name && (
+            <span style={{ fontFamily: T.mono, fontSize: 13, color: T.fgDim }}>{company.name}</span>
+          )}
+        </div>
+
+        {/* Title */}
+        <h1 style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 400, color: T.fg, margin: '4px 0 0' }}>
+          {opp.name || 'Untitled'}
+        </h1>
+
+        {/* Description */}
+        {opp.description && (
+          <p style={{ fontSize: 13.5, color: T.fgDim, margin: '8px 0 0', lineHeight: 1.55, maxWidth: 720 }}>
+            {opp.description}
+          </p>
+        )}
+
+        {/* Status row */}
+        {kvPairs.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginTop: 16 }}>
+            {kvPairs.map(kv => (
+              <div key={kv.label} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontFamily: T.mono, fontSize: 11, color: T.fgFaint, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                  {kv.label}
+                </span>
+                <span style={{ fontFamily: T.sans, fontSize: 13, color: T.fg }}>{kv.value}</span>
               </div>
-              <h1 className={`text-2xl font-bold bg-gradient-to-r ${meta.gradient} bg-clip-text text-transparent`}>
-                {name}
-              </h1>
-              {companyName && (
-                <div className="flex items-center gap-2 text-muted-foreground mt-1">
-                  <Building2 className="w-4 h-4" />
-                  <span>{companyName}</span>
-                  {companyUrl && (
-                    <a href={companyUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
+            ))}
+          </div>
+        )}
+
+        {/* Tags */}
+        {tags.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 14 }}>
+            {tags.map(tag => (
+              <span key={tag} style={{
+                fontFamily: T.mono,
+                fontSize: 11,
+                color: T.fgDim,
+                border: `1px solid ${T.borderDim}`,
+                borderRadius: 10,
+                padding: '2px 10px',
+              }}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Job URL */}
+        {opp['job-url'] && (
+          <div style={{ marginTop: 12 }}>
+            <a
+              href={opp['job-url']}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: T.mono, fontSize: 12, color: T.teal, textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              View job posting &rarr;
+            </a>
+          </div>
+        )}
+      </div>
+
+      {/* ── Two-column layout ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 24, padding: '24px 28px 48px', alignItems: 'start' }}>
+        {/* ── Left column: Timeline ── */}
+        <div>
+          <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h2 style={{ fontFamily: T.serif, fontSize: 18, color: T.fg, margin: 0 }}>Timeline</h2>
+              <span style={{ fontFamily: T.mono, fontSize: 11, color: T.fgFaint }}>{notes.length} note{notes.length !== 1 ? 's' : ''}</span>
+            </div>
+
+            {/* Filter chips */}
+            {noteTypesPresent.length > 1 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+                <button
+                  onClick={() => setActiveFilter(null)}
+                  style={{
+                    fontFamily: T.mono,
+                    fontSize: 11,
+                    color: activeFilter === null ? T.bg : T.fgDim,
+                    background: activeFilter === null ? T.teal : 'transparent',
+                    border: `1px solid ${activeFilter === null ? T.teal : T.borderDim}`,
+                    borderRadius: 10,
+                    padding: '3px 10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ALL
+                </button>
+                {noteTypesPresent.map(nt => {
+                  const m = noteTypeMeta(nt);
+                  const active = activeFilter === nt;
+                  return (
+                    <button
+                      key={nt}
+                      onClick={() => setActiveFilter(active ? null : nt)}
+                      style={{
+                        fontFamily: T.mono,
+                        fontSize: 11,
+                        color: active ? T.bg : m.color,
+                        background: active ? m.color : 'transparent',
+                        border: `1px solid ${active ? m.color : T.borderDim}`,
+                        borderRadius: 10,
+                        padding: '3px 10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {m.short}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Notes list */}
+            {sortedNotes.length === 0 && (
+              <p style={{ fontFamily: T.sans, fontSize: 13, color: T.fgFaint, textAlign: 'center', padding: 20 }}>
+                No notes yet.
+              </p>
+            )}
+            {sortedNotes.map((note: any, idx: number) => {
+              const m = noteTypeMeta(note.type);
+              return (
+                <div key={note.id || idx} style={{
+                  position: 'relative',
+                  paddingLeft: 24,
+                  paddingBottom: idx < sortedNotes.length - 1 ? 20 : 0,
+                  borderLeft: idx < sortedNotes.length - 1 ? `1px solid ${T.borderDim}` : 'none',
+                  marginLeft: 6,
+                }}>
+                  {/* Dot */}
+                  <div style={{
+                    position: 'absolute',
+                    left: -5,
+                    top: 4,
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    background: m.color,
+                    border: `2px solid ${T.bg}`,
+                  }} />
+
+                  {/* Type badge + name */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{
+                      fontFamily: T.mono,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: 1,
+                      color: m.color,
+                      background: `${m.color}18`,
+                      borderRadius: 3,
+                      padding: '1px 6px',
+                    }}>
+                      {m.short}
+                    </span>
+                    {note.name && (
+                      <span style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.fg }}>
+                        {note.name}
+                      </span>
+                    )}
+                    {note['created-at'] && (
+                      <span style={{ fontFamily: T.mono, fontSize: 10, color: T.fgFaint, marginLeft: 'auto' }}>
+                        {note['created-at']}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Type-specific extras */}
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: note.content ? 6 : 0 }}>
+                    {note['fit-score'] != null && (
+                      <span style={{ fontFamily: T.mono, fontSize: 11, color: T.mint }}>
+                        fit: {typeof note['fit-score'] === 'number' ? (note['fit-score'] * 100).toFixed(0) + '%' : note['fit-score']}
+                      </span>
+                    )}
+                    {note['contact_name'] && (
+                      <span style={{ fontFamily: T.mono, fontSize: 11, color: T.blue }}>
+                        contact: {note['contact_name']}
+                      </span>
+                    )}
+                    {note['application_status'] && (
+                      <span style={{ fontFamily: T.mono, fontSize: 11, color: T.olive }}>
+                        status: {note['application_status']}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  {note.content && (
+                    <div style={{ fontSize: 13, color: T.fgDim, lineHeight: 1.6 }}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          p: ({ children }) => <p style={{ margin: '4px 0' }}>{children}</p>,
+                          h1: ({ children }) => <h1 style={{ fontSize: 16, fontWeight: 700, color: T.fg, margin: '12px 0 4px' }}>{children}</h1>,
+                          h2: ({ children }) => <h2 style={{ fontSize: 15, fontWeight: 700, color: T.fg, margin: '10px 0 4px' }}>{children}</h2>,
+                          h3: ({ children }) => <h3 style={{ fontSize: 14, fontWeight: 600, color: T.fg, margin: '8px 0 4px' }}>{children}</h3>,
+                          ul: ({ children }) => <ul style={{ paddingLeft: 18, margin: '4px 0' }}>{children}</ul>,
+                          ol: ({ children }) => <ol style={{ paddingLeft: 18, margin: '4px 0' }}>{children}</ol>,
+                          li: ({ children }) => <li style={{ margin: '2px 0' }}>{children}</li>,
+                          a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: T.teal, textDecoration: 'underline', textUnderlineOffset: 3 }}>{children}</a>,
+                          code: ({ children }) => <code style={{ fontFamily: T.mono, fontSize: 12, background: T.bgRaised, padding: '1px 5px', borderRadius: 3, color: T.olive }}>{children}</code>,
+                          blockquote: ({ children }) => <blockquote style={{ borderLeft: `3px solid ${T.border}`, paddingLeft: 12, margin: '8px 0', color: T.fgFaint }}>{children}</blockquote>,
+                          table: ({ children }) => <table style={{ borderCollapse: 'collapse', fontSize: 12, margin: '8px 0', width: '100%' }}>{children}</table>,
+                          th: ({ children }) => <th style={{ border: `1px solid ${T.border}`, padding: '4px 8px', textAlign: 'left', fontFamily: T.mono, fontSize: 11, color: T.fgFaint }}>{children}</th>,
+                          td: ({ children }) => <td style={{ border: `1px solid ${T.borderDim}`, padding: '4px 8px' }}>{children}</td>,
+                        }}
+                      >
+                        {note.content}
+                      </ReactMarkdown>
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {priority && (
-                <Badge className={PRIORITY_COLORS[priority]}>
-                  {priority} priority
-                </Badge>
-              )}
-              {status && (
-                <Badge className={statusColor(status)}>
-                  {status}
-                </Badge>
-              )}
-            </div>
+              );
+            })}
           </div>
         </div>
-      </header>
 
-      <main className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column — Notes */}
-          <div className="lg:col-span-2 space-y-6">
-            {description && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">Overview</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">{description}</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {notes.length > 0 && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    Notes
-                    <Badge variant="secondary" className="ml-auto">{notes.length}</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                  {notes.map((note: any, idx: number) => (
-                    <div key={idx} className="text-sm">
-                      {note.content && (
-                        <div className="prose prose-sm max-w-none dark:prose-invert">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {note.content}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                      {idx < notes.length - 1 && <Separator className="mt-4" />}
+        {/* ── Right column ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Contacts */}
+          {contacts.length > 0 && (
+            <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20 }}>
+              <h3 style={{ fontFamily: T.serif, fontSize: 16, color: T.fg, margin: '0 0 14px' }}>Contacts</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {contacts.map((c: any, idx: number) => (
+                  <div key={c.id || idx} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {/* Initials avatar */}
+                    <div style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: '50%',
+                      background: T.bgRaised,
+                      border: `1px solid ${T.border}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontFamily: T.mono,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: T.teal,
+                      flexShrink: 0,
+                    }}>
+                      {initials(c.name || '??')}
                     </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Background Reading */}
-            {backgroundReading.length > 0 && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <BookOpen className="w-4 h-4" />
-                    Background Reading
-                    <Badge variant="secondary" className="ml-auto">
-                      {backgroundReading.length}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                  {backgroundReading.map((col: any, idx: number) => {
-                    const colName = col['collection-name'];
-                    const colDesc = col.description;
-                    return (
-                      <div key={idx} className="p-3 rounded-lg bg-muted/50">
-                        <Link
-                          href={`/jobhunt/collection/${col['collection-id']}`}
-                          className="font-medium text-sm text-cyan-400 font-semibold underline underline-offset-2 hover:text-blue-400 transition-colors"
-                        >
-                          {colName}
-                        </Link>
-                        {colDesc && (
-                          <p className="text-xs text-muted-foreground mt-1">{colDesc}</p>
-                        )}
+                    <div>
+                      <div style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.fg }}>
+                        {c.name || 'Unknown'}
                       </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-            )}
-
-            {notes.length === 0 && !description && (
-              <Card>
-                <CardContent className="p-8 text-center text-muted-foreground text-sm">
-                  No notes yet. Use the jobhunt skill to add notes to this opportunity.
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* Right Column — Quick Facts */}
-          <div className="space-y-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {status && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Status</span>
-                    <Badge className={statusColor(status)}>{status}</Badge>
+                      {c['contact-role'] && (
+                        <span style={{
+                          fontFamily: T.mono,
+                          fontSize: 10,
+                          letterSpacing: 0.8,
+                          color: T.blue,
+                          background: `${T.blue}18`,
+                          borderRadius: 3,
+                          padding: '1px 6px',
+                          textTransform: 'uppercase',
+                        }}>
+                          {c['contact-role']}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                )}
+                ))}
+              </div>
+            </div>
+          )}
 
-                {/* Venture-specific */}
-                {ventureStage && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground flex items-center gap-1">
-                      <TrendingUp className="w-3 h-3" /> Stage
-                    </span>
-                    <Badge variant="outline">{ventureStage}</Badge>
+          {/* Requirements (position only) */}
+          {kind.showRequirements && requirements.length > 0 && (
+            <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20 }}>
+              <h3 style={{ fontFamily: T.serif, fontSize: 16, color: T.fg, margin: '0 0 14px' }}>Requirements</h3>
+              {/* Header row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 80px', gap: 4, marginBottom: 6 }}>
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: T.fgFaint, textTransform: 'uppercase', letterSpacing: 0.8 }}>Skill</span>
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: T.fgFaint, textTransform: 'uppercase', letterSpacing: 0.8 }}>Level</span>
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: T.fgFaint, textTransform: 'uppercase', letterSpacing: 0.8 }}>Yours</span>
+              </div>
+              {requirements.map((r: any, idx: number) => {
+                const yourColor = LEVEL_COLORS[(r['your-level'] || '').toLowerCase()] || T.fgFaint;
+                return (
+                  <div key={r.id || idx} style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 80px 80px',
+                    gap: 4,
+                    padding: '5px 0',
+                    borderTop: idx > 0 ? `1px solid ${T.borderDim}` : 'none',
+                  }}>
+                    <span style={{ fontFamily: T.sans, fontSize: 13, color: T.fg }}>{r['skill-name']}</span>
+                    <span style={{ fontFamily: T.mono, fontSize: 11, color: T.fgDim }}>{r['skill-level']}</span>
+                    <span style={{ fontFamily: T.mono, fontSize: 11, color: yourColor, fontWeight: 600 }}>{r['your-level'] || '-'}</span>
                   </div>
-                )}
-                {equityType && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Equity type</span>
-                    <span className="font-medium capitalize">{equityType}</span>
-                  </div>
-                )}
+                );
+              })}
+            </div>
+          )}
 
-                {/* Engagement-specific */}
-                {engagementType && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground flex items-center gap-1">
-                      <Briefcase className="w-3 h-3" /> Type
-                    </span>
-                    <span className="font-medium capitalize">{engagementType}</span>
-                  </div>
-                )}
-                {rateInfo && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground flex items-center gap-1">
-                      <DollarSign className="w-3 h-3" /> Rate
-                    </span>
-                    <span className="font-medium">{rateInfo}</span>
-                  </div>
-                )}
-
-                {deadline && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Deadline</span>
-                    <span className="font-medium">{deadline}</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {companyName && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Building2 className="w-4 h-4" />
-                    Company
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm font-medium">{companyName}</p>
-                  {companyUrl && (
-                    <a
-                      href={companyUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline text-xs flex items-center gap-1 mt-1"
+          {/* Background reading */}
+          {backgroundReading.length > 0 && (
+            <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20 }}>
+              <h3 style={{ fontFamily: T.serif, fontSize: 16, color: T.fg, margin: '0 0 14px' }}>Background Reading</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {backgroundReading.map((col: any, idx: number) => (
+                  <div key={col['collection-id'] || idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 14 }}>&#128214;</span>
+                    <Link
+                      href={`/jobhunt/collection/${col['collection-id']}`}
+                      style={{
+                        fontFamily: T.sans,
+                        fontSize: 13,
+                        color: T.teal,
+                        fontWeight: 600,
+                        textDecoration: 'underline',
+                        textUnderlineOffset: 3,
+                      }}
                     >
-                      <ExternalLink className="w-3 h-3" />
-                      {companyUrl}
-                    </a>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                      {col['collection-name']}
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      </main>
+      </div>
     </div>
   );
 }
