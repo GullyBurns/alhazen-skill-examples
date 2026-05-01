@@ -141,3 +141,18 @@ export async function updateOpportunity(
   if (updates.priority) args.push('--priority', updates.priority);
   return runJobhunt(args);
 }
+
+export async function getEmbeddingMap(excludeIds?: string[]) {
+  const script = SKILL_ROOT
+    ? path.join(SKILL_ROOT, 'embedding_map.py')
+    : path.join(PROJECT_ROOT, '.claude/skills/jobhunt/embedding_map.py');
+  const args = ['run', 'python', script, 'map'];
+  if (excludeIds && excludeIds.length > 0) {
+    args.push('--exclude', ...excludeIds);
+  }
+  const { stdout } = await execFileAsync('uv', args, {
+    cwd: CWD,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  return JSON.parse(stdout);
+}
