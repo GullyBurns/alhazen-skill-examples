@@ -151,10 +151,12 @@ export async function getEmbeddingMap(excludeIds?: string[]) {
   if (excludeIds && excludeIds.length > 0) {
     args.push('--exclude', ...excludeIds);
   }
+  // Use PROJECT_ROOT as cwd (not SKILL_ROOT) because embedding_map.py
+  // needs pymde/qdrant/voyageai which are in the main project's deps
   const { stdout } = await execFileAsync(
     'uv',
     ['run', 'python', EMBEDDING_SCRIPT, ...args],
-    { cwd: CWD, maxBuffer: 10 * 1024 * 1024 }
+    { cwd: PROJECT_ROOT, maxBuffer: 10 * 1024 * 1024 }
   );
   return JSON.parse(stdout);
 }
