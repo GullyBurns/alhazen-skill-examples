@@ -8,7 +8,7 @@ export default function MissionControl() {
   const [items, setItems] = useState<MapItem[]>([]);
   const [excludeIds, setExcludeIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [filteredIds, setFilteredIds] = useState<Set<string> | null>(null); // null = no filter active
+  const [filteredIds, setFilteredIds] = useState<Set<string> | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -71,7 +71,8 @@ export default function MissionControl() {
   const handleReset = useCallback(() => {
     setExcludeIds(new Set());
     setSelectedIds(new Set());
-    setFilteredIds(null);
+    // Don't clear filteredIds — let the list's toggle state remain active
+    // The list will re-notify via onFilterChange after items reload
     fetchItems();
   }, [fetchItems]);
 

@@ -53,7 +53,8 @@ const LEVEL_COLORS: Record<string, string> = {
   none: '#5e7387',
 };
 
-function noteTypeMeta(type: string) {
+function noteTypeMeta(type: string | undefined | null) {
+  if (!type) return { label: 'note', short: '?', color: T.fgDim };
   return NOTE_TYPES[type] || { label: type.replace(/^jobhunt-/, '').replace(/-note$/, ''), short: '?', color: T.fgDim };
 }
 
@@ -112,7 +113,7 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
     return (
       <div style={{ minHeight: '100vh', background: T.bg, padding: 40 }}>
         <Link href="/jobhunt" style={{ fontFamily: T.mono, fontSize: 13, color: T.teal, textDecoration: 'none' }}>
-          &larr; inbox
+          &larr; mission control
         </Link>
         <div style={{ marginTop: 24, padding: '14px 20px', background: 'rgba(200,122,74,0.12)', border: `1px solid ${T.rust}`, borderRadius: 6, color: T.rust, fontFamily: T.sans, fontSize: 14 }}>
           {error || 'Opportunity not found'}
@@ -154,7 +155,7 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
       {/* ── Back nav ── */}
       <div style={{ padding: '14px 28px', borderBottom: `1px solid ${T.borderDim}` }}>
         <Link href="/jobhunt" style={{ fontFamily: T.mono, fontSize: 13, color: T.teal, textDecoration: 'none' }}>
-          &larr; inbox
+          &larr; mission control
         </Link>
       </div>
 
