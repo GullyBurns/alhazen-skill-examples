@@ -18,6 +18,10 @@ const FORAGER_SCRIPT = SKILL_ROOT
   ? path.join(SKILL_ROOT, 'job_forager.py')
   : path.join(PROJECT_ROOT, '.claude/skills/jobhunt/job_forager.py');
 
+const EMBEDDING_SCRIPT = SKILL_ROOT
+  ? path.join(SKILL_ROOT, 'embedding_map.py')
+  : path.join(PROJECT_ROOT, '.claude/skills/jobhunt/embedding_map.py');
+
 const NOTEBOOK_SCRIPT = process.env.NOTEBOOK_SCRIPT_PATH
   || path.join(PROJECT_ROOT, '.claude/skills/typedb-notebook/typedb_notebook.py');
 
@@ -143,16 +147,14 @@ export async function updateOpportunity(
 }
 
 export async function getEmbeddingMap(excludeIds?: string[]) {
-  const script = SKILL_ROOT
-    ? path.join(SKILL_ROOT, 'embedding_map.py')
-    : path.join(PROJECT_ROOT, '.claude/skills/jobhunt/embedding_map.py');
-  const args = ['run', 'python', script, 'map'];
+  const args = ['map'];
   if (excludeIds && excludeIds.length > 0) {
     args.push('--exclude', ...excludeIds);
   }
-  const { stdout } = await execFileAsync('uv', args, {
-    cwd: CWD,
-    maxBuffer: 10 * 1024 * 1024,
-  });
+  const { stdout } = await execFileAsync(
+    'uv',
+    ['run', 'python', EMBEDDING_SCRIPT, ...args],
+    { cwd: CWD, maxBuffer: 10 * 1024 * 1024 }
+  );
   return JSON.parse(stdout);
 }
