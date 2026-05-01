@@ -58,6 +58,16 @@ export function EmbeddingMap({ items, selectedIds, onSelect }: EmbeddingMapProps
       container.removeChild(container.firstChild);
     }
 
+    // Compute domain with padding so all points are visible and centered
+    const xVals = items.map(d => d.x);
+    const yVals = items.map(d => d.y);
+    const xMin = Math.min(...xVals);
+    const xMax = Math.max(...xVals);
+    const yMin = Math.min(...yVals);
+    const yMax = Math.max(...yVals);
+    const xPad = (xMax - xMin) * 0.12 || 1;
+    const yPad = (yMax - yMin) * 0.12 || 1;
+
     const plot = Plot.plot({
       width: container.clientWidth,
       height: container.clientHeight - 4,
@@ -65,8 +75,8 @@ export function EmbeddingMap({ items, selectedIds, onSelect }: EmbeddingMapProps
         background: 'transparent',
         color: '#c8dde8',
       },
-      x: { axis: null },
-      y: { axis: null },
+      x: { axis: null, domain: [xMin - xPad, xMax + xPad] },
+      y: { axis: null, domain: [yMin - yPad, yMax + yPad] },
       marks: [
         Plot.dot(items, {
           x: 'x',
