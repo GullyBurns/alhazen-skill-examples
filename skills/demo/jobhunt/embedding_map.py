@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 TYPEDB_HOST = os.getenv("TYPEDB_HOST", "localhost")
 TYPEDB_PORT = int(os.getenv("TYPEDB_PORT", "1729"))
@@ -236,16 +237,21 @@ def cmd_map(args):
         print(json.dumps({"success": True, "items": items, "count": len(items)}))
         return
 
-    # Load seed coordinates from file (cached from previous run)
+    # Load seed coordinates from TypeDB dashboard state note
     seed_coords = {}
-    seed_file = os.path.join(os.path.dirname(__file__), ".embedding-map-cache.json")
-    if os.path.exists(seed_file):
-        try:
-            with open(seed_file) as f:
-                cached = json.load(f)
-            seed_coords = {item["id"]: (item["x"], item["y"]) for item in cached.get("items", [])}
-        except Exception:
-            pass
+    try:
+        from typedb.driver import TransactionType as TxType
+        tdb = get_typedb_driver()
+        with tdb.transaction(TYPEDB_DATABASE, TxType.READ) as tx_read:
+            states = list(tx_read.query('''match
+                $n isa jobhunt-dashboard-state-note, has content $c, has name "embedding-map-coordinates";
+            fetch { "content": $c };''').resolve())
+            if states:
+                cached = json.loads(states[0]["content"])
+                seed_coords = {k: (v["x"], v["y"]) for k, v in cached.items()}
+        tdb.close()
+    except Exception:
+        pass
 
     # Extract vectors and run PyMDE
     import pymde
@@ -275,9 +281,13 @@ def cmd_map(args):
         constraint=pymde.Standardized(),
         repulsive_fraction=0.7,
         n_neighbors=min(5, len(filtered) - 1),
-        init=init if init is not None else "random",
+        init="quadratic",
     )
-    embedding_2d = mde.embed().cpu().numpy()
+    # Use cached seed positions as starting point if available
+    if init is not None:
+        embedding_2d = mde.embed(X=init).cpu().numpy()
+    else:
+        embedding_2d = mde.embed().cpu().numpy()
 
     # Build output
     items = []
@@ -291,12 +301,31 @@ def cmd_map(args):
 
     result = {"success": True, "items": items, "count": len(items)}
 
-    # Cache coordinates for next run (seed for stability)
+    # Save coordinates to TypeDB dashboard state note
     try:
-        with open(seed_file, "w") as f:
-            json.dump(result, f)
-    except Exception:
-        pass
+        from typedb.driver import TransactionType as TxType
+        cache = {item["id"]: {"x": item["x"], "y": item["y"]} for item in items}
+        cache_json = json.dumps(cache).replace('"', '\\"')
+        tdb = get_typedb_driver()
+        # Delete old state note if exists
+        with tdb.transaction(TYPEDB_DATABASE, TxType.WRITE) as tx_w:
+            try:
+                tx_w.query('match $n isa jobhunt-dashboard-state-note, has name "embedding-map-coordinates"; delete $n;').resolve()
+            except Exception:
+                pass
+            tx_w.commit()
+        # Insert new state note
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with tdb.transaction(TYPEDB_DATABASE, TxType.WRITE) as tx_w:
+            tx_w.query(f'''insert $n isa jobhunt-dashboard-state-note,
+                has id "dashboard-state-embedding-map",
+                has name "embedding-map-coordinates",
+                has content "{cache_json}",
+                has created-at {timestamp};''').resolve()
+            tx_w.commit()
+        tdb.close()
+    except Exception as e:
+        print(f"Warning: could not save state to TypeDB: {e}", file=sys.stderr)
 
     print(json.dumps(result, default=str))
 
@@ -315,6 +344,7 @@ if __name__ == "__main__":
 
     p_map = sub.add_parser("map", help="Get 2D map coordinates")
     p_map.add_argument("--exclude", nargs="*", help="Opportunity IDs to exclude")
+    p_map.add_argument("--seed-file", help="Path to JSON file with seed coordinates {id: {x, y}}")
 
     sub.add_parser("embed-and-map", help="Embed then map")
 

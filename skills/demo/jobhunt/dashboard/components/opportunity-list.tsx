@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 export interface MapItem {
@@ -76,52 +76,83 @@ const TYPE_COLORS: Record<string, string> = {
   lead: '#62c4bc',
 };
 
+// Default: show everything except withdrawn and rejected
+const DEFAULT_OFF_STATUSES = new Set(['withdrawn', 'rejected']);
+// All possible statuses in pipeline order (so withdrawn shows even if no items yet)
+const ALL_STATUSES = ['researching', 'applied', 'interviewing', 'offer', 'rejected', 'withdrawn'];
+
 export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFilterChange }: OpportunityListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [typeFilter, setTypeFilter] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [activeTypes, setActiveTypes] = useState<Set<string> | null>(null);
+  const [activeStatuses, setActiveStatuses] = useState<Set<string> | null>(null);
   const router = useRouter();
 
   // Compute available types and statuses from visible items
   const visibleItems = items.filter(item => visibleIds.has(item.id));
   const types = Array.from(new Set(visibleItems.map(i => i.type))).sort();
-  const statuses = Array.from(new Set(visibleItems.map(i => i.status).filter(Boolean)))
-    .sort((a, b) => (STATUS_ORDER[a] ?? 99) - (STATUS_ORDER[b] ?? 99));
+  const presentStatuses = Array.from(new Set(visibleItems.map(i => i.status).filter(Boolean)));
+  // Show all pipeline statuses that have data
+  const statuses = ALL_STATUSES.filter(s => presentStatuses.includes(s));
+
+  // Initialize on first data load via useEffect (not during render)
+  useEffect(() => {
+    if (activeTypes === null && types.length > 0) {
+      setActiveTypes(new Set(types));
+    }
+    if (activeStatuses === null && statuses.length > 0) {
+      const initial = new Set(statuses.filter(s => !DEFAULT_OFF_STATUSES.has(s)));
+      setActiveStatuses(initial);
+      // Defer parent notification to avoid update-during-render
+      if (onFilterChange) {
+        setTimeout(() => {
+          const ids = new Set(
+            visibleItems
+              .filter(item => initial.has(item.status || ''))
+              .map(item => item.id)
+          );
+          onFilterChange(ids);
+        }, 0);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length]);
+
+  const typesOn = activeTypes || new Set(types);
+  const statusesOn = activeStatuses || new Set(statuses.filter(s => !DEFAULT_OFF_STATUSES.has(s)));
 
   const filtered = visibleItems
-    .filter(item => !typeFilter || item.type === typeFilter)
-    .filter(item => !statusFilter || item.status === statusFilter)
+    .filter(item => typesOn.has(item.type))
+    .filter(item => !item.status || statusesOn.has(item.status))
     .sort((a, b) => {
       const pDiff = getPrioritySort(a.priority) - getPrioritySort(b.priority);
       if (pDiff !== 0) return pDiff;
       return getStatusSort(a.status) - getStatusSort(b.status);
     });
 
-  // Notify parent of filter changes so map can update
-  const applyTypeFilter = (t: string | null) => {
-    setTypeFilter(t);
+  const notifyFilter = (newTypes: Set<string>, newStatuses: Set<string>) => {
     if (onFilterChange) {
       const ids = new Set(
         visibleItems
-          .filter(item => !t || item.type === t)
-          .filter(item => !statusFilter || item.status === statusFilter)
+          .filter(item => newTypes.has(item.type))
+          .filter(item => !item.status || newStatuses.has(item.status))
           .map(item => item.id)
       );
       onFilterChange(ids);
     }
   };
 
-  const applyStatusFilter = (s: string | null) => {
-    setStatusFilter(s);
-    if (onFilterChange) {
-      const ids = new Set(
-        visibleItems
-          .filter(item => !typeFilter || item.type === typeFilter)
-          .filter(item => !s || item.status === s)
-          .map(item => item.id)
-      );
-      onFilterChange(ids);
-    }
+  const toggleType = (t: string) => {
+    const next = new Set(typesOn);
+    if (next.has(t)) { next.delete(t); } else { next.add(t); }
+    setActiveTypes(next);
+    notifyFilter(next, statusesOn);
+  };
+
+  const toggleStatus = (s: string) => {
+    const next = new Set(statusesOn);
+    if (next.has(s)) { next.delete(s); } else { next.add(s); }
+    setActiveStatuses(next);
+    notifyFilter(typesOn, next);
   };
 
   const handleClick = (id: string) => {
@@ -135,34 +166,38 @@ export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFil
       height: '100%',
       fontFamily: "'DM Sans', sans-serif",
     }}>
-      {/* Filter chips */}
+      {/* Filter toggles */}
       <div style={{
         padding: '8px 12px',
         borderBottom: '1px solid rgba(94, 115, 135, 0.2)',
         display: 'flex',
         flexWrap: 'wrap',
         gap: '4px',
+        alignItems: 'center',
       }}>
-        {/* Type filters */}
-        <FilterChip label="All" active={!typeFilter} onClick={() => applyTypeFilter(null)} color="#c8dde8" />
+        {/* Type toggles */}
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', color: '#5e7387', marginRight: '2px' }}>TYPE</span>
         {types.map(t => (
           <FilterChip
             key={t}
             label={TYPE_LABELS[t] || t}
-            active={typeFilter === t}
-            onClick={() => applyTypeFilter(typeFilter === t ? null : t)}
+            active={typesOn.has(t)}
+            onClick={() => toggleType(t)}
             color={TYPE_COLORS[t] || '#8ba4b8'}
+            count={visibleItems.filter(i => i.type === t).length}
           />
         ))}
-        <span style={{ width: '1px', background: 'rgba(94,115,135,0.3)', margin: '0 4px' }} />
-        {/* Status filters */}
+        <span style={{ width: '1px', height: '16px', background: 'rgba(94,115,135,0.3)', margin: '0 6px' }} />
+        {/* Status toggles */}
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', color: '#5e7387', marginRight: '2px' }}>STATUS</span>
         {statuses.map(s => (
           <FilterChip
             key={s}
             label={s}
-            active={statusFilter === s}
-            onClick={() => applyStatusFilter(statusFilter === s ? null : s)}
+            active={statusesOn.has(s)}
+            onClick={() => toggleStatus(s)}
             color={STATUS_COLORS[s] || '#8ba4b8'}
+            count={visibleItems.filter(i => i.status === s).length}
           />
         ))}
       </div>
@@ -315,7 +350,7 @@ export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFil
   );
 }
 
-function FilterChip({ label, active, onClick, color }: { label: string; active: boolean; onClick: () => void; color: string }) {
+function FilterChip({ label, active, onClick, color, count }: { label: string; active: boolean; onClick: () => void; color: string; count?: number }) {
   return (
     <button
       onClick={onClick}
@@ -328,11 +363,15 @@ function FilterChip({ label, active, onClick, color }: { label: string; active: 
         cursor: 'pointer',
         background: active ? color : 'transparent',
         color: active ? '#070d1c' : color,
-        border: `1px solid ${active ? color : 'rgba(200,221,232,0.08)'}`,
+        border: `1px solid ${active ? color : 'rgba(200,221,232,0.12)'}`,
         textTransform: 'lowercase',
+        opacity: active ? 1 : 0.5,
       }}
     >
       {label}
+      {count !== undefined && (
+        <span style={{ opacity: 0.6, marginLeft: '3px' }}>{count}</span>
+      )}
     </button>
   );
 }

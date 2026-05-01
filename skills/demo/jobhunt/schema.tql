@@ -250,6 +250,13 @@ entity jobhunt-interaction-note sub note,
     owns interaction-type,
     owns interaction-date;
 
+# Dashboard UI state — stores map coordinates, filter settings as JSON content.
+# Linked to the operator-user via aboutness (note: $state, subject: $operator).
+# Most recent one by created-at is current state. Content is JSON:
+#   { "coordinates": { "opp-id": { "x": 0.5, "y": -0.3 }, ... },
+#     "filters": { "types": ["position","lead"], "statuses": ["researching","applied","interviewing"] } }
+entity jobhunt-dashboard-state-note sub note;
+
 
 # -----------------------------------------------------------------------------
 # CROSS-NAMESPACE EXTENSIONS
