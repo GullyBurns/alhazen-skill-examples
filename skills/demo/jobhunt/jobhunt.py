@@ -516,14 +516,35 @@ def cmd_add_position(args):
             tx.query(query).resolve()
             tx.commit()
 
-        # Link to company
+        # Link to company (match by name, create if not found)
         if args.company:
+            company_name = args.company.strip()
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-                rel_query = f'''match
+                # Look up existing company by name
+                existing = list(tx.query(f'''match
+                    $c isa jobhunt-company, has id $cid, has name $cn;
+                fetch {{ "id": $cid, "name": $cn }};''').resolve())
+
+                # Case-insensitive exact match
+                company_id_linked = None
+                for co in existing:
+                    if co["name"].lower() == company_name.lower():
+                        company_id_linked = co["id"]
+                        break
+
+                if not company_id_linked:
+                    # Create new company
+                    company_id_linked = generate_id("company")
+                    tx.query(f'''insert $c isa jobhunt-company,
+                        has id "{company_id_linked}",
+                        has name "{escape_string(company_name)}",
+                        has created-at {timestamp};''').resolve()
+
+                # Create position-at-company relation
+                tx.query(f'''match
                     $p isa jobhunt-position, has id "{position_id}";
-                    $c isa jobhunt-company, has id "{args.company}";
-                insert (position: $p, employer: $c) isa position-at-company;'''
-                tx.query(rel_query).resolve()
+                    $c isa jobhunt-company, has id "{company_id_linked}";
+                insert (position: $p, employer: $c) isa position-at-company;''').resolve()
                 tx.commit()
 
         # Create initial application note
@@ -2576,7 +2597,7 @@ def main():
     # add-position
     p = subparsers.add_parser("add-position", help="Add a position manually")
     p.add_argument("--title", required=True, help="Position title")
-    p.add_argument("--company", help="Company ID")
+    p.add_argument("--company", help="Company name (matched to existing or created)")
     p.add_argument("--url", help="Job posting URL")
     p.add_argument("--location", help="Job location")
     p.add_argument("--remote-policy", choices=["remote", "hybrid", "onsite"], help="Remote policy")
