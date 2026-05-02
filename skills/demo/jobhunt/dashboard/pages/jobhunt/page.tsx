@@ -19,7 +19,11 @@ export default function MissionControl() {
       if (exclude && exclude.size > 0) {
         url += '?exclude=' + Array.from(exclude).join(',');
       }
-      const res = await fetch(url);
+      let res = await fetch(url);
+      // Fall back to static pre-computed file if API fails (e.g., no Qdrant)
+      if (!res.ok) {
+        res = await fetch('/embedding-map.json');
+      }
       if (!res.ok) throw new Error('Failed to fetch embedding map');
       const data = await res.json();
       setItems(data.items || []);
