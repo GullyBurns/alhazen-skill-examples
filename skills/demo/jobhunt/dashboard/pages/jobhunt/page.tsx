@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { EmbeddingMap, MapItem } from '@/components/jobhunt/embedding-map';
 import { OpportunityList } from '@/components/jobhunt/opportunity-list';
+import { SchemaTag, SchemaInspector } from '@/components/jobhunt/schema-inspector';
 
 export default function MissionControl() {
   const [items, setItems] = useState<MapItem[]>([]);
@@ -11,6 +13,9 @@ export default function MissionControl() {
   const [filteredIds, setFilteredIds] = useState<Set<string> | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [schemaOpen, setSchemaOpen] = useState(false);
+  const [schemaFocus, setSchemaFocus] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0);
 
   const fetchItems = useCallback(async (exclude?: Set<string>) => {
     setLoading(true);
@@ -19,14 +24,12 @@ export default function MissionControl() {
       if (exclude && exclude.size > 0) {
         url += '?exclude=' + Array.from(exclude).join(',');
       }
-      let res = await fetch(url);
-      // Fall back to static pre-computed file if API fails (e.g., no Qdrant)
-      if (!res.ok) {
-        res = await fetch('/embedding-map.json');
-      }
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch embedding map');
       const data = await res.json();
       setItems(data.items || []);
+      // Clear filteredIds so list re-applies its current toggle state to new data
+      setFilteredIds(null);
     } catch (err) {
       console.error('Fetch error:', err);
     } finally {
@@ -38,11 +41,15 @@ export default function MissionControl() {
     fetchItems();
   }, [fetchItems]);
 
-  // visibleIds: not excluded AND passes list filters (if any active)
+  // Visible items: if list has set filteredIds, use that; otherwise show all non-excluded
   const visibleIds = new Set(
     items
       .filter(item => !excludeIds.has(item.id))
-      .filter(item => !filteredIds || filteredIds.has(item.id))
+      .filter(item => {
+        if (filteredIds) return filteredIds.has(item.id);
+        // No explicit filter yet — show all (list will fire onFilterChange shortly)
+        return true;
+      })
       .map(item => item.id)
   );
   const visibleItems = items.filter(item => visibleIds.has(item.id));
@@ -55,6 +62,10 @@ export default function MissionControl() {
 
   const handleMapSelect = useCallback((ids: string[]) => {
     setSelectedIds(new Set(ids));
+  }, []);
+
+  const handleCheckedChange = useCallback((ids: Set<string>) => {
+    setSelectedIds(ids);
   }, []);
 
   const handleListSelect = useCallback((id: string) => {
@@ -75,8 +86,7 @@ export default function MissionControl() {
   const handleReset = useCallback(() => {
     setExcludeIds(new Set());
     setSelectedIds(new Set());
-    // Don't clear filteredIds — let the list's toggle state remain active
-    // The list will re-notify via onFilterChange after items reload
+    setResetKey(k => k + 1);
     fetchItems();
   }, [fetchItems]);
 
@@ -127,15 +137,30 @@ export default function MissionControl() {
       }}>
         {/* Header */}
         <div style={{ marginBottom: '8px' }}>
-          <h1 style={{
-            fontFamily: "'DM Serif Display', serif",
-            fontSize: '24px',
-            color: '#c8dde8',
-            margin: 0,
-            lineHeight: 1.2,
-          }}>
-            Mission Control
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <Link href="/" style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: '11px',
+              color: '#5e7387',
+              textDecoration: 'none',
+              transition: 'color 0.15s',
+            }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = '#5aadaf'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = '#5e7387'; }}
+            >
+              &larr; hub
+            </Link>
+            <h1 style={{
+              fontFamily: "'DM Serif Display', serif",
+              fontSize: '24px',
+              color: '#c8dde8',
+              margin: 0,
+              lineHeight: 1.2,
+            }}>
+              Mission Control
+            </h1>
+            <SchemaTag type="jobhunt" onOpen={() => { setSchemaFocus(null); setSchemaOpen(true); }} />
+          </div>
           <div style={{
             fontSize: '12px',
             color: '#5e7387',
@@ -203,6 +228,31 @@ export default function MissionControl() {
             }}
           >
             Reset
+          </button>
+          <button
+            onClick={() => fetchItems(excludeIds.size > 0 ? excludeIds : undefined)}
+            style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: '11px',
+              color: '#5aadaf',
+              backgroundColor: 'transparent',
+              border: '1px solid rgba(90, 173, 175, 0.3)',
+              borderRadius: '4px',
+              padding: '5px 14px',
+              cursor: 'pointer',
+              letterSpacing: '0.5px',
+              transition: 'border-color 0.15s, color 0.15s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = '#5aadaf';
+              e.currentTarget.style.color = '#c8dde8';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(90, 173, 175, 0.3)';
+              e.currentTarget.style.color = '#5aadaf';
+            }}
+          >
+            Reload
           </button>
           <button
             onClick={handleSelect}
@@ -298,9 +348,12 @@ export default function MissionControl() {
             selectedId={expandedId}
             onSelect={handleListSelect}
             onFilterChange={handleFilterChange}
+            onCheckedChange={handleCheckedChange}
+            resetKey={resetKey}
           />
         </div>
       </div>
+      <SchemaInspector open={schemaOpen} onClose={() => setSchemaOpen(false)} focus={schemaFocus} />
     </div>
   );
 }

@@ -75,9 +75,9 @@ def fetch_opportunities():
                 oid = opp["id"]
                 oname = opp["name"]
 
-                # Get short-name, priority, status
+                # Get short-name, priority, created-at
                 extras = {}
-                for attr in ["short-name", "priority-level"]:
+                for attr in ["short-name", "priority-level", "created-at"]:
                     try:
                         r = list(tx.query(f'''match $o isa {otype}, has id "{oid}", has {attr} $v;
                             fetch {{ "v": $v }};''').resolve())
@@ -86,15 +86,22 @@ def fetch_opportunities():
                     except:
                         pass
 
-                # Get application status (from note)
+                # Get status: application-status from note (positions) or opportunity-status from entity
                 try:
-                    status_r = list(tx.query(f'''match
-                        $o isa {otype}, has id "{oid}";
-                        (note: $n, subject: $o) isa aboutness;
-                        $n isa jobhunt-application-note, has application-status $s;
-                    fetch {{ "status": $s }};''').resolve())
-                    if status_r:
-                        extras["status"] = status_r[0]["status"]
+                    if otype == "jobhunt-position":
+                        status_r = list(tx.query(f'''match
+                            $o isa {otype}, has id "{oid}";
+                            (note: $n, subject: $o) isa aboutness;
+                            $n isa jobhunt-application-note, has application-status $s;
+                        fetch {{ "status": $s }};''').resolve())
+                        if status_r:
+                            extras["status"] = status_r[0]["status"]
+                    else:
+                        status_r = list(tx.query(f'''match
+                            $o isa {otype}, has id "{oid}", has opportunity-status $s;
+                        fetch {{ "status": $s }};''').resolve())
+                        if status_r:
+                            extras["status"] = status_r[0]["status"]
                 except:
                     pass
 
@@ -113,28 +120,43 @@ def fetch_opportunities():
                 except:
                     pass
 
-                # Get all sensemaking notes (research, fit-analysis, strategy, general)
+                # Prefer opp-summary note; fall back to other sensemaking notes
+                summary_text = None
+                try:
+                    summary_r = list(tx.query(f'''match
+                        $o isa {otype}, has id "{oid}";
+                        (note: $n, subject: $o) isa aboutness;
+                        $n isa jobhunt-opp-summary-note, has content $c;
+                    fetch {{ "content": $c }};''').resolve())
+                    if summary_r:
+                        summary_text = summary_r[0]["content"]
+                except:
+                    pass
+
                 notes_text = []
-                for ntype in ["jobhunt-research-note", "jobhunt-fit-analysis-note",
-                              "jobhunt-strategy-note", "jobhunt-skill-gap-note", "note"]:
-                    try:
-                        notes = list(tx.query(f'''match
-                            $o isa {otype}, has id "{oid}";
-                            (note: $n, subject: $o) isa aboutness;
-                            $n isa {ntype}, has content $c;
-                        fetch {{ "content": $c }};''').resolve())
-                        for n in notes:
-                            if n.get("content"):
-                                notes_text.append(n["content"])
-                    except:
-                        pass
+                if not summary_text:
+                    for ntype in ["jobhunt-research-note", "jobhunt-fit-analysis-note",
+                                  "jobhunt-strategy-note", "jobhunt-skill-gap-note", "note"]:
+                        try:
+                            notes = list(tx.query(f'''match
+                                $o isa {otype}, has id "{oid}";
+                                (note: $n, subject: $o) isa aboutness;
+                                $n isa {ntype}, has content $c;
+                            fetch {{ "content": $c }};''').resolve())
+                            for n in notes:
+                                if n.get("content"):
+                                    notes_text.append(n["content"])
+                        except:
+                            pass
 
                 # Build the text to embed
                 embed_text = f"Title: {oname}\n"
                 if company:
                     embed_text += f"Company: {company}\n"
                 embed_text += f"Type: {type_label}\n"
-                if notes_text:
+                if summary_text:
+                    embed_text += summary_text
+                elif notes_text:
                     embed_text += "\n".join(notes_text)
                 else:
                     embed_text += f"No sensemaking notes yet for this {type_label}."
@@ -147,6 +169,7 @@ def fetch_opportunities():
                     "status": extras.get("status"),
                     "priority": extras.get("priority-level"),
                     "company": company,
+                    "created_at": str(extras.get("created-at", "")) or None,
                     "text": embed_text,
                 })
 
@@ -182,12 +205,6 @@ def cmd_embed(args):
             vector=emb,
             payload={
                 "opp_id": opp["id"],
-                "name": opp["name"],
-                "short_name": opp["short_name"],
-                "type": opp["type"],
-                "status": opp["status"],
-                "priority": opp["priority"],
-                "company": opp["company"],
             },
         ))
 
@@ -289,14 +306,91 @@ def cmd_map(args):
     else:
         embedding_2d = mde.embed().cpu().numpy()
 
-    # Build output
-    items = []
+    # Build ID → 2D coordinate map
+    coord_by_id = {}
     for i, p in enumerate(filtered):
-        items.append({
-            **p.payload,
-            "id": p.payload["opp_id"],
+        coord_by_id[p.payload["opp_id"]] = {
             "x": float(embedding_2d[i, 0]),
             "y": float(embedding_2d[i, 1]),
+        }
+
+    # Fetch FRESH metadata from TypeDB (not stale Qdrant payloads)
+    from typedb.driver import TransactionType as TxType
+    tdb_meta = get_typedb_driver()
+    metadata = {}
+    with tdb_meta.transaction(TYPEDB_DATABASE, TxType.READ) as tx_m:
+        for otype in ["jobhunt-position", "jobhunt-engagement", "jobhunt-venture", "jobhunt-lead"]:
+            type_label = otype.replace("jobhunt-", "")
+            opps = list(tx_m.query(f'''match $o isa {otype}, has id $id, has name $n;
+                fetch {{ "id": $id, "name": $n }};''').resolve())
+            for opp in opps:
+                oid = opp["id"]
+                if oid not in coord_by_id:
+                    continue
+                meta = {"id": oid, "name": opp["name"], "type": type_label}
+                # Fetch optional attributes
+                for attr, key in [("short-name", "short_name"), ("priority-level", "priority"), ("created-at", "created_at")]:
+                    try:
+                        r = list(tx_m.query(f'match $o isa {otype}, has id "{oid}", has {attr} $v; fetch {{ "v": $v }};').resolve())
+                        if r:
+                            meta[key] = str(r[0]["v"]) if attr == "created-at" else r[0]["v"]
+                    except:
+                        pass
+                # Status: application-status from note (positions) or opportunity-status from entity
+                try:
+                    if otype == "jobhunt-position":
+                        s = list(tx_m.query(f'''match $o isa {otype}, has id "{oid}";
+                            (note: $n, subject: $o) isa aboutness;
+                            $n isa jobhunt-application-note, has application-status $s;
+                        fetch {{ "s": $s }};''').resolve())
+                        if s:
+                            meta["status"] = s[0]["s"]
+                    else:
+                        s = list(tx_m.query(f'''match $o isa {otype}, has id "{oid}", has opportunity-status $s;
+                        fetch {{ "s": $s }};''').resolve())
+                        if s:
+                            meta["status"] = s[0]["s"]
+                except:
+                    pass
+                # Company
+                try:
+                    for rel in ["position-at-company", "opportunity-at-organization"]:
+                        role = "employer" if "position" in rel else "organization"
+                        co = list(tx_m.query(f'''match $o isa {otype}, has id "{oid}";
+                            ({rel.split("-")[0]}: $o, {role}: $c) isa {rel};
+                        fetch {{ "c": $c.name }};''').resolve())
+                        if co:
+                            meta["company"] = co[0]["c"]
+                            break
+                except:
+                    pass
+                # Opp summary note
+                try:
+                    sm = list(tx_m.query(f'''match $o isa {otype}, has id "{oid}";
+                        (note: $n, subject: $o) isa aboutness;
+                        $n isa jobhunt-opp-summary-note, has content $c;
+                    fetch {{ "c": $c }};''').resolve())
+                    if sm:
+                        meta["summary_text"] = sm[0]["c"]
+                except:
+                    pass
+                metadata[oid] = meta
+    tdb_meta.close()
+
+    # Join coordinates with fresh metadata
+    items = []
+    for oid, coords in coord_by_id.items():
+        meta = metadata.get(oid, {"id": oid, "name": oid, "type": "unknown"})
+        items.append({
+            **meta,
+            "short_name": meta.get("short_name", meta.get("name", oid)[:30]),
+            "status": meta.get("status"),
+            "priority": meta.get("priority"),
+            "company": meta.get("company"),
+            "created_at": meta.get("created_at"),
+            "summary_text": meta.get("summary_text"),
+            "x": coords["x"],
+            "y": coords["y"],
         })
 
     result = {"success": True, "items": items, "count": len(items)}
@@ -346,7 +440,8 @@ if __name__ == "__main__":
     p_map.add_argument("--exclude", nargs="*", help="Opportunity IDs to exclude")
     p_map.add_argument("--seed-file", help="Path to JSON file with seed coordinates {id: {x, y}}")
 
-    sub.add_parser("embed-and-map", help="Embed then map")
+    p_both = sub.add_parser("embed-and-map", help="Embed then map")
+    p_both.add_argument("--exclude", nargs="*", help="Opportunity IDs to exclude")
 
     args = parser.parse_args()
     if args.command == "embed":

@@ -13,6 +13,9 @@ export interface MapItem {
   x: number;
   y: number;
   notes_count?: number;
+  created_at?: string | null;
+  name?: string;
+  summary_text?: string | null;
 }
 
 interface EmbeddingMapProps {
@@ -85,14 +88,28 @@ export function EmbeddingMap({ items, selectedIds, onSelect }: EmbeddingMapProps
           stroke: (d: MapItem) => selectedIds.has(d.id) ? '#b8c84a' : 'none',
           strokeWidth: (d: MapItem) => selectedIds.has(d.id) ? 2 : 0,
           opacity: 0.85,
+          title: (d: MapItem) => {
+            const header = `${d.short_name}\n${d.company || ''}\n${d.status || ''} · ${d.priority || ''}\n${d.created_at ? d.created_at.slice(0, 10) : ''}`;
+            if (!d.summary_text) return header;
+            const plain = d.summary_text.replace(/^#{1,3}\s+/gm, '').replace(/\*\*/g, '').slice(0, 500);
+            return `${header}\n---\n${plain}`;
+          },
         }),
         Plot.text(items, {
           x: 'x',
           y: 'y',
           text: 'short_name',
           fontSize: 9,
-          fill: '#8ba4b8',
+          fill: '#c8dde8',
           dy: 14,
+        }),
+        Plot.text(items, {
+          x: 'x',
+          y: 'y',
+          text: (d: MapItem) => d.company ? `(${d.company})` : '',
+          fontSize: 8,
+          fill: '#5e7387',
+          dy: 24,
         }),
       ],
     });

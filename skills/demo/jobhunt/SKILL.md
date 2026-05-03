@@ -240,7 +240,7 @@ uv run python .claude/skills/jobhunt/jobhunt.py add-lead \
     --description "Met at ML Summit, interested in consulting"
 ```
 
-**Lead statuses (convention):** `exploring` | `warm` | `stale`
+**Lead statuses:** `first-contact` | `active` | `inactive` | `closed`
 
 ---
 
@@ -346,15 +346,102 @@ uv run python .claude/skills/jobhunt/jobhunt.py show-artifact --id "artifact-xyz
 
 ### Quality Checklist
 
-Every position MUST have after sensemaking:
+Every opportunity MUST have after sensemaking:
 
-- **Clean title** -- strip "Job Application for", "| LinkedIn", "hiring", and other job-board boilerplate from the position name
+- **Clean title** -- strip "Job Application for", "| LinkedIn", "hiring", and other job-board boilerplate from the name
 - **Short-name** -- a compact display label (3-4 words, e.g. "Sr ML Eng - Anthropic")
 - **Company linked** -- via `--company` flag on add-position, auto-matched to existing `jobhunt-company` entities (do not create duplicates)
 - **Salary/compensation researched** -- if not in the posting, search Levels.fyi or Glassdoor and record in `salary-range` attribute
 - **At least one research note** -- company background, leadership, role context
 - **Requirements extracted** -- as `jobhunt-requirement` entities via `add-requirement`
 - **Fit analysis note** -- with `fit-score` (0.0-1.0) and `fit-summary`
+- **Opportunity summary** -- a `jobhunt-opp-summary-note` synthesizing all notes. Regenerated after any note is added or updated.
+- **Embedded in map** -- run `embedding_map.py embed-and-map` after saving the summary so the opportunity appears on Mission Control.
+
+### Opportunity Summary
+
+Every opportunity has exactly one `jobhunt-opp-summary-note` — a living markdown dossier that is overwritten each time notes change. This is the primary embedding text for the Mission Control map and the quick-read view for understanding any opportunity.
+
+**Workflow — regenerate after any note update:**
+```bash
+# 1. Fetch all notes + metadata
+uv run python .claude/skills/jobhunt/jobhunt.py regenerate-summary --about <opp-id>
+
+# 2. Read the JSON output, write a markdown summary following the template below
+
+# 3. Save the summary (creates or overwrites)
+uv run python .claude/skills/jobhunt/jobhunt.py upsert-summary --about <opp-id> --content "@/tmp/summary.md"
+
+# 4. Re-embed to update the Mission Control map
+uv run python local_skills/jobhunt/embedding_map.py embed-and-map
+```
+
+**IMPORTANT:** Step 4 (re-embed) MUST be run after saving the summary. Without it, new or updated opportunities will not appear on the Mission Control map. This step re-computes embeddings for ALL opportunities and regenerates the 2D layout.
+
+**Summary templates by type:**
+
+**Position:**
+```markdown
+## Role
+- Title, company, location/remote policy
+- Key responsibilities (2-3 bullets)
+- Salary range if known
+
+## Fit
+- Overall fit score and one-line assessment
+- Top strengths (2-3 bullets with specifics)
+- Key gaps (1-2 bullets)
+
+## Company
+- What they do, stage/size, why interesting
+- Key people (hiring manager, contacts)
+
+## Status
+- Current application status
+- Key dates, next steps, or outcome
+```
+
+**Engagement:**
+```markdown
+## Engagement
+- Client, scope, type (consulting/contract/advisory)
+- Rate/compensation if known
+
+## Fit
+- Why this is a good match
+- Key deliverables
+
+## Status
+- Current stage (proposal/active/paused/closed)
+```
+
+**Venture:**
+```markdown
+## Overview
+- What the venture is, stage
+- Your role/involvement
+
+## Opportunity
+- Why it's interesting
+- Key milestones or next steps
+
+## Status
+- Current stage (seed/series-a/series-b/growth/closed)
+```
+
+**Lead:**
+```markdown
+## Contact
+- Who, title, organization
+- How you met, when
+
+## Context
+- What the connection is about
+- Potential opportunity or value
+
+## Status
+- Relationship state (first-contact/active/inactive/closed)
+```
 
 ---
 

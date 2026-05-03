@@ -34,6 +34,7 @@ const NOTE_TYPES: Record<string, { label: string; short: string; color: string }
   'jobhunt-interaction-note': { label: 'Interaction', short: 'TALK', color: '#5b8ab8' },
   'jobhunt-strategy-note': { label: 'Strategy', short: 'STRAT', color: '#8ba4b8' },
   'jobhunt-skill-gap-note': { label: 'Skill gap', short: 'GAP', color: '#c87a4a' },
+  'jobhunt-opp-summary-note': { label: 'Summary', short: 'SUM', color: '#b8c84a' },
   'jobhunt-cc-brief-note': { label: 'CC brief', short: 'BRIEF', color: '#b8c84a' },
   'jobhunt-cc-feedback-note': { label: 'Feedback', short: 'FEEDBACK', color: '#c87a4a' },
 };
@@ -131,9 +132,13 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
   const backgroundReading: any[] = data.background_reading || [];
   const kind = kindMeta(data.type || '');
 
+  /* Extract summary note (shown at top, excluded from timeline) */
+  const summaryNote = notes.find((n: any) => n.type === 'jobhunt-opp-summary-note');
+  const timelineNotes = notes.filter((n: any) => n.type !== 'jobhunt-opp-summary-note');
+
   /* Note type filter chips */
-  const noteTypesPresent = [...new Set(notes.map((n: any) => n.type as string))];
-  const filteredNotes = activeFilter ? notes.filter((n: any) => n.type === activeFilter) : notes;
+  const noteTypesPresent = [...new Set(timelineNotes.map((n: any) => n.type as string))];
+  const filteredNotes = activeFilter ? timelineNotes.filter((n: any) => n.type === activeFilter) : timelineNotes;
   const sortedNotes = [...filteredNotes].sort((a: any, b: any) => {
     const da = a['created-at'] || '';
     const db = b['created-at'] || '';
@@ -239,6 +244,55 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
         )}
       </div>
 
+      {/* ── Summary dossier ── */}
+      {summaryNote?.content && (
+        <div style={{ padding: '20px 28px 0' }}>
+          <div style={{
+            background: T.panel,
+            border: `1px solid ${T.olive}33`,
+            borderRadius: 8,
+            padding: 20,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <span style={{
+                fontFamily: T.mono,
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: 1,
+                color: T.olive,
+                background: `${T.olive}18`,
+                borderRadius: 3,
+                padding: '1px 6px',
+              }}>
+                SUM
+              </span>
+              <h2 style={{ fontFamily: T.serif, fontSize: 18, color: T.fg, margin: 0 }}>Summary</h2>
+              {summaryNote['created-at'] && (
+                <span style={{ fontFamily: T.mono, fontSize: 10, color: T.fgFaint, marginLeft: 'auto' }}>
+                  updated {summaryNote['created-at']}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 13.5, color: T.fgDim, lineHeight: 1.65 }}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({ children }) => <p style={{ margin: '4px 0' }}>{children}</p>,
+                  h2: ({ children }) => <h2 style={{ fontSize: 15, fontWeight: 700, color: T.fg, margin: '14px 0 4px' }}>{children}</h2>,
+                  h3: ({ children }) => <h3 style={{ fontSize: 14, fontWeight: 600, color: T.fg, margin: '10px 0 4px' }}>{children}</h3>,
+                  ul: ({ children }) => <ul style={{ paddingLeft: 18, margin: '4px 0' }}>{children}</ul>,
+                  li: ({ children }) => <li style={{ margin: '2px 0' }}>{children}</li>,
+                  a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: T.teal, textDecoration: 'underline', textUnderlineOffset: 3 }}>{children}</a>,
+                  strong: ({ children }) => <strong style={{ color: T.fg }}>{children}</strong>,
+                }}
+              >
+                {summaryNote.content}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Two-column layout ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 24, padding: '24px 28px 48px', alignItems: 'start' }}>
         {/* ── Left column: Timeline ── */}
@@ -246,7 +300,7 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
           <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <h2 style={{ fontFamily: T.serif, fontSize: 18, color: T.fg, margin: 0 }}>Timeline</h2>
-              <span style={{ fontFamily: T.mono, fontSize: 11, color: T.fgFaint }}>{notes.length} note{notes.length !== 1 ? 's' : ''}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 11, color: T.fgFaint }}>{timelineNotes.length} note{timelineNotes.length !== 1 ? 's' : ''}</span>
             </div>
 
             {/* Filter chips */}

@@ -14,6 +14,7 @@ export interface MapItem {
   y: number;
   notes_count?: number;
   name?: string;
+  created_at?: string | null;
 }
 
 interface OpportunityListProps {
@@ -22,6 +23,8 @@ interface OpportunityListProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onFilterChange?: (filteredIds: Set<string>) => void;
+  onCheckedChange?: (ids: Set<string>) => void;
+  resetKey?: number;
 }
 
 const PRIORITY_ORDER: Record<string, number> = {
@@ -31,12 +34,16 @@ const PRIORITY_ORDER: Record<string, number> = {
 };
 
 const STATUS_ORDER: Record<string, number> = {
-  researching: 0,
-  applied: 1,
-  interviewing: 2,
-  offer: 3,
-  rejected: 4,
-  withdrawn: 5,
+  // position
+  researching: 0, applied: 1, interviewing: 2, offer: 3, rejected: 4, withdrawn: 5,
+  // engagement
+  proposal: 0, /* active: 1, paused: 2, closed: 3 */
+  // venture
+  seed: 0, 'series-a': 1, 'series-b': 2, growth: 3, /* closed: 4 */
+  // lead
+  'first-contact': 0, /* active: 1, inactive: 2, closed: 3 */
+  // shared
+  active: 1, paused: 2, inactive: 2, closed: 3,
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -53,11 +60,27 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
+  // position
   interviewing: '#5aadaf',
   applied: '#5b8ab8',
   researching: '#8ba4b8',
   withdrawn: '#5e7387',
   rejected: '#5e7387',
+  offer: '#b8c84a',
+  // engagement
+  proposal: '#d4a843',
+  // venture
+  seed: '#8ba4b8',
+  'series-a': '#5b8ab8',
+  'series-b': '#5aadaf',
+  growth: '#b8c84a',
+  // lead
+  'first-contact': '#d4a843',
+  inactive: '#5e7387',
+  // shared
+  active: '#5aadaf',
+  paused: '#d4a843',
+  closed: '#5e7387',
 };
 
 function getPrioritySort(p: string | null): number {
@@ -76,89 +99,198 @@ const TYPE_COLORS: Record<string, string> = {
   lead: '#62c4bc',
 };
 
-// Default: show everything except withdrawn and rejected
-const DEFAULT_OFF_STATUSES = new Set(['withdrawn', 'rejected']);
-// All possible statuses in pipeline order (so withdrawn shows even if no items yet)
-const ALL_STATUSES = ['researching', 'applied', 'interviewing', 'offer', 'rejected', 'withdrawn'];
+// Per-type status pipelines
+const TYPE_STATUSES: Record<string, string[]> = {
+  position: ['researching', 'applied', 'interviewing', 'offer', 'rejected', 'withdrawn'],
+  engagement: ['proposal', 'active', 'paused', 'closed'],
+  venture: ['seed', 'series-a', 'series-b', 'growth', 'closed'],
+  lead: ['first-contact', 'active', 'inactive', 'closed'],
+};
 
-export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFilterChange }: OpportunityListProps) {
+// Default status for items with null status (first stage in the pipeline)
+const TYPE_DEFAULT_STATUS: Record<string, string> = {
+  position: 'researching',
+  engagement: 'proposal',
+  venture: 'seed',
+  lead: 'first-contact',
+};
+
+function effectiveStatus(item: MapItem): string {
+  return item.status || TYPE_DEFAULT_STATUS[item.type] || 'researching';
+}
+
+// Per-type default-off statuses
+const TYPE_DEFAULT_OFF: Record<string, Set<string>> = {
+  position: new Set(['withdrawn', 'rejected']),
+  engagement: new Set(['closed']),
+  venture: new Set(['closed']),
+  lead: new Set(['inactive', 'closed']),
+};
+
+export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFilterChange, onCheckedChange, resetKey }: OpportunityListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeTypes, setActiveTypes] = useState<Set<string> | null>(null);
+  const [activeType, setActiveType] = useState<string>('all'); // 'all' or a specific type
   const [activeStatuses, setActiveStatuses] = useState<Set<string> | null>(null);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [copyFeedback, setCopyFeedback] = useState(false);
   const router = useRouter();
+
+  // Reset to 'all' when resetKey changes
+  useEffect(() => {
+    if (resetKey !== undefined && resetKey > 0) {
+      setActiveType('all');
+      setActiveStatuses(null);
+      setCheckedIds(new Set());
+    }
+  }, [resetKey]);
 
   // Compute available types and statuses from visible items
   const visibleItems = items.filter(item => visibleIds.has(item.id));
   const types = Array.from(new Set(visibleItems.map(i => i.type))).sort();
-  const presentStatuses = Array.from(new Set(visibleItems.map(i => i.status).filter(Boolean)));
-  // Show all pipeline statuses that have data
-  const statuses = ALL_STATUSES.filter(s => presentStatuses.includes(s));
+  // Show pipeline statuses for the active type based on items of that type
+  const isAll = activeType === 'all';
+  const allStatusesForType = isAll ? [] : (TYPE_STATUSES[activeType] || TYPE_STATUSES.position);
+  const defaultOffForType = isAll ? new Set<string>() : (TYPE_DEFAULT_OFF[activeType] || TYPE_DEFAULT_OFF.position);
+  const typeItems = isAll ? visibleItems : visibleItems.filter(i => i.type === activeType);
+  const presentStatuses = isAll ? [] : Array.from(new Set(typeItems.map(i => effectiveStatus(i))));
+  const statuses = isAll ? [] : allStatusesForType.filter(s => presentStatuses.includes(s));
 
-  // Initialize on first data load via useEffect (not during render)
+  // Initialize filters on first data load
   useEffect(() => {
-    if (activeTypes === null && types.length > 0) {
-      setActiveTypes(new Set(types));
-    }
-    if (activeStatuses === null && statuses.length > 0) {
-      const initial = new Set(statuses.filter(s => !DEFAULT_OFF_STATUSES.has(s)));
-      setActiveStatuses(initial);
-      // Defer parent notification to avoid update-during-render
-      if (onFilterChange) {
-        setTimeout(() => {
+    if (onFilterChange) {
+      setTimeout(() => {
+        if (isAll) {
+          // All mode: show everything except per-type terminal statuses
           const ids = new Set(
             visibleItems
-              .filter(item => initial.has(item.status || ''))
+              .filter(item => {
+                const off = TYPE_DEFAULT_OFF[item.type];
+                return !off || !off.has(effectiveStatus(item));
+              })
               .map(item => item.id)
           );
           onFilterChange(ids);
-        }, 0);
-      }
+        } else if (activeStatuses === null && statuses.length > 0) {
+          const initial = new Set(statuses.filter(s => !defaultOffForType.has(s)));
+          setActiveStatuses(initial);
+          const ids = new Set(
+            visibleItems
+              .filter(item => item.type === activeType)
+              .filter(item => initial.has(effectiveStatus(item)))
+              .map(item => item.id)
+          );
+          onFilterChange(ids);
+        }
+      }, 0);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items.length]);
 
-  const typesOn = activeTypes || new Set(types);
-  const statusesOn = activeStatuses || new Set(statuses.filter(s => !DEFAULT_OFF_STATUSES.has(s)));
+  const statusesOn = activeStatuses || new Set(statuses.filter(s => !defaultOffForType.has(s)));
 
   const filtered = visibleItems
-    .filter(item => typesOn.has(item.type))
-    .filter(item => !item.status || statusesOn.has(item.status))
+    .filter(item => isAll ? true : item.type === activeType)
+    .filter(item => {
+      if (isAll) {
+        // In all mode, hide per-type terminal statuses
+        const off = TYPE_DEFAULT_OFF[item.type];
+        return !off || !off.has(effectiveStatus(item));
+      }
+      return statusesOn.has(effectiveStatus(item));
+    })
     .sort((a, b) => {
       const pDiff = getPrioritySort(a.priority) - getPrioritySort(b.priority);
       if (pDiff !== 0) return pDiff;
-      return getStatusSort(a.status) - getStatusSort(b.status);
+      return getStatusSort(effectiveStatus(a)) - getStatusSort(effectiveStatus(b));
     });
 
-  const notifyFilter = (newTypes: Set<string>, newStatuses: Set<string>) => {
-    if (onFilterChange) {
+  const notifyFilter = (type: string, newStatuses: Set<string>) => {
+    if (!onFilterChange) return;
+    if (type === 'all') {
+      // All mode: include items that pass their per-type default-off filter
       const ids = new Set(
         visibleItems
-          .filter(item => newTypes.has(item.type))
-          .filter(item => !item.status || newStatuses.has(item.status))
+          .filter(item => {
+            const off = TYPE_DEFAULT_OFF[item.type];
+            return !off || !off.has(effectiveStatus(item));
+          })
+          .map(item => item.id)
+      );
+      onFilterChange(ids);
+    } else {
+      const ids = new Set(
+        visibleItems
+          .filter(item => item.type === type)
+          .filter(item => newStatuses.has(effectiveStatus(item)))
           .map(item => item.id)
       );
       onFilterChange(ids);
     }
   };
 
-  const toggleType = (t: string) => {
-    const next = new Set(typesOn);
-    if (next.has(t)) { next.delete(t); } else { next.add(t); }
-    setActiveTypes(next);
-    notifyFilter(next, statusesOn);
+  const selectType = (t: string) => {
+    setActiveType(t);
+    setCheckedIds(new Set());
+    if (t === 'all') {
+      setActiveStatuses(null);
+      notifyFilter('all', new Set());
+    } else {
+      const newStatuses = TYPE_STATUSES[t] || TYPE_STATUSES.position;
+      const newOff = TYPE_DEFAULT_OFF[t] || TYPE_DEFAULT_OFF.position;
+      const newActive = new Set(newStatuses.filter(s => !newOff.has(s)));
+      setActiveStatuses(newActive);
+      notifyFilter(t, newActive);
+    }
   };
 
   const toggleStatus = (s: string) => {
     const next = new Set(statusesOn);
     if (next.has(s)) { next.delete(s); } else { next.add(s); }
     setActiveStatuses(next);
-    notifyFilter(typesOn, next);
+    setCheckedIds(new Set()); // clear checkboxes on filter change
+    notifyFilter(activeType, next);
   };
 
   const handleClick = (id: string) => {
     onSelect(id);
     setExpandedId(expandedId === id ? null : id);
   };
+
+  const copyCheckedToClipboard = (ids: Set<string>) => {
+    if (ids.size === 0) return;
+    navigator.clipboard.writeText(Array.from(ids).join(', ')).then(() => {
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 1500);
+    });
+  };
+
+  const toggleCheck = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = new Set(checkedIds);
+    if (next.has(id)) { next.delete(id); } else { next.add(id); }
+    setCheckedIds(next);
+    copyCheckedToClipboard(next);
+    onCheckedChange?.(next);
+  };
+
+  const toggleSelectAll = () => {
+    const filteredIdSet = new Set(filtered.map(i => i.id));
+    const allChecked = filtered.every(i => checkedIds.has(i.id));
+    let next: Set<string>;
+    if (allChecked) {
+      next = new Set(checkedIds);
+      filteredIdSet.forEach(id => next.delete(id));
+    } else {
+      next = new Set(checkedIds);
+      filteredIdSet.forEach(id => next.add(id));
+    }
+    setCheckedIds(next);
+    copyCheckedToClipboard(next);
+    onCheckedChange?.(next);
+  };
+
+  const allFilteredChecked = filtered.length > 0 && filtered.every(i => checkedIds.has(i.id));
+  const someFilteredChecked = filtered.some(i => checkedIds.has(i.id));
 
   return (
     <div style={{
@@ -175,35 +307,60 @@ export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFil
         gap: '4px',
         alignItems: 'center',
       }}>
-        {/* Type toggles */}
-        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', color: '#5e7387', marginRight: '2px' }}>TYPE</span>
+        {/* Type selector (single select) */}
+        <OptionButton
+          key="all"
+          label="ALL"
+          selected={activeType === 'all'}
+          onClick={() => selectType('all')}
+          color="#8ba4b8"
+          count={visibleItems.length}
+        />
         {types.map(t => (
-          <FilterChip
+          <OptionButton
             key={t}
             label={TYPE_LABELS[t] || t}
-            active={typesOn.has(t)}
-            onClick={() => toggleType(t)}
+            selected={activeType === t}
+            onClick={() => selectType(t)}
             color={TYPE_COLORS[t] || '#8ba4b8'}
             count={visibleItems.filter(i => i.type === t).length}
           />
         ))}
-        <span style={{ width: '1px', height: '16px', background: 'rgba(94,115,135,0.3)', margin: '0 6px' }} />
-        {/* Status toggles */}
-        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', color: '#5e7387', marginRight: '2px' }}>STATUS</span>
-        {statuses.map(s => (
-          <FilterChip
-            key={s}
-            label={s}
-            active={statusesOn.has(s)}
-            onClick={() => toggleStatus(s)}
-            color={STATUS_COLORS[s] || '#8ba4b8'}
-            count={visibleItems.filter(i => i.status === s).length}
-          />
-        ))}
+        {/* Status toggles (hidden in all mode) */}
+        {!isAll && statuses.length > 0 && (
+          <>
+            <span key="sep" style={{ width: '1px', height: '16px', background: 'rgba(94,115,135,0.3)', margin: '0 6px' }} />
+            <span key="status-label" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', color: '#5e7387', marginRight: '2px' }}>STATUS</span>
+            {statuses.map(s => (
+              <FilterChip
+                key={`status-${s}`}
+                label={s}
+                active={statusesOn.has(s)}
+                onClick={() => toggleStatus(s)}
+                color={STATUS_COLORS[s] || '#8ba4b8'}
+                count={typeItems.filter(i => effectiveStatus(i) === s).length}
+              />
+            ))}
+          </>
+        )}
       </div>
 
-      <div style={{ fontSize: '10px', color: '#5e7387', padding: '4px 12px', fontFamily: "'JetBrains Mono', monospace" }}>
-        {filtered.length} of {visibleItems.length} shown
+      <div style={{
+        fontSize: '10px', color: '#5e7387', padding: '4px 12px',
+        fontFamily: "'JetBrains Mono', monospace",
+        display: 'flex', alignItems: 'center', gap: '8px',
+      }}>
+        <SelectCheckbox
+          checked={allFilteredChecked}
+          indeterminate={someFilteredChecked && !allFilteredChecked}
+          onChange={toggleSelectAll}
+        />
+        <span>{filtered.length}{isAll ? ` active of ${visibleItems.length} total` : ` of ${typeItems.length} ${activeType}s`}</span>
+        {checkedIds.size > 0 && (
+          <span style={{ color: copyFeedback ? '#b8c84a' : '#8ba4b8' }}>
+            {copyFeedback ? '✓ copied' : `${checkedIds.size} selected`}
+          </span>
+        )}
       </div>
 
       {filtered.length === 0 && (
@@ -221,7 +378,8 @@ export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFil
         const isExpanded = expandedId === item.id;
         const priorityColor = PRIORITY_COLORS[item.priority || ''] || '#5e7387';
         const typeLabel = TYPE_LABELS[item.type] || item.type?.toUpperCase()?.slice(0, 3) || '---';
-        const statusColor = STATUS_COLORS[item.status] || '#5e7387';
+        const itemStatus = effectiveStatus(item);
+        const statusColor = STATUS_COLORS[itemStatus] || '#5e7387';
 
         return (
           <div
@@ -243,6 +401,12 @@ export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFil
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Selection checkbox */}
+              <SelectCheckbox
+                checked={checkedIds.has(item.id)}
+                onChange={(e) => toggleCheck(item.id, e as unknown as React.MouseEvent)}
+              />
+
               {/* Priority dot */}
               <div style={{
                 width: '7px',
@@ -302,8 +466,21 @@ export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFil
                 letterSpacing: '0.5px',
                 flexShrink: 0,
               }}>
-                {item.status}
+                {itemStatus}
               </span>
+
+              {/* Date */}
+              {item.created_at && (
+                <span style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: '9px',
+                  color: '#5e7387',
+                  flexShrink: 0,
+                }}>
+                  {item.created_at.slice(0, 10)}
+                </span>
+              )}
+
             </div>
 
             {/* Expanded detail */}
@@ -371,6 +548,73 @@ function FilterChip({ label, active, onClick, color, count }: { label: string; a
       {label}
       {count !== undefined && (
         <span style={{ opacity: 0.6, marginLeft: '3px' }}>{count}</span>
+      )}
+    </button>
+  );
+}
+
+function SelectCheckbox({ checked, indeterminate, onChange }: {
+  checked: boolean;
+  indeterminate?: boolean;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <div
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange(e as unknown as React.ChangeEvent<HTMLInputElement>);
+      }}
+      style={{
+        width: '14px',
+        height: '14px',
+        borderRadius: '3px',
+        border: `1.5px solid ${checked ? '#5aadaf' : indeterminate ? '#8ba4b8' : 'rgba(139,164,184,0.3)'}`,
+        background: checked ? '#5aadaf' : indeterminate ? 'rgba(139,164,184,0.3)' : 'transparent',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        flexShrink: 0,
+        transition: 'all 0.15s',
+      }}
+    >
+      {checked && (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M2 5L4 7L8 3" stroke="#070d1c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      )}
+      {indeterminate && !checked && (
+        <div style={{ width: '8px', height: '2px', background: '#070d1c', borderRadius: '1px' }} />
+      )}
+    </div>
+  );
+}
+
+function OptionButton({ label, selected, onClick, color, count }: {
+  label: string; selected: boolean; onClick: () => void; color: string; count?: number;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: '10px',
+        letterSpacing: '0.6px',
+        padding: '3px 10px',
+        borderRadius: '3px',
+        cursor: 'pointer',
+        background: selected ? color : 'transparent',
+        color: selected ? '#070d1c' : color,
+        border: `1.5px solid ${color}`,
+        textTransform: 'uppercase',
+        fontWeight: selected ? 600 : 400,
+        opacity: selected ? 1 : 0.6,
+        transition: 'all 0.15s',
+      }}
+    >
+      {label}
+      {count !== undefined && (
+        <span style={{ opacity: 0.6, marginLeft: '4px' }}>{count}</span>
       )}
     </button>
   );

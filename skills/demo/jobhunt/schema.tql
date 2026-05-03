@@ -30,7 +30,12 @@ attribute deadline, value datetime;
 attribute response-date, value datetime;
 
 # Opportunity model attributes
-attribute opportunity-status, value string;   # exploring/active/paused/closed
+attribute opportunity-status, value string;
+# Per-type status values:
+#   engagement: proposal, active, paused, closed
+#   venture: seed, series-a, series-b, growth, closed
+#   lead: first-contact, active, inactive, closed
+# (positions use application-status on jobhunt-application-note instead)
 attribute engagement-type, value string;      # hourly | project | retainer | advisory
 attribute rate-info, value string;            # free text: "$X/hr", "TBD", "equity only"
 attribute venture-stage, value string;        # exploring | proposal-sent | negotiating | active | paused | closed
@@ -249,6 +254,11 @@ entity jobhunt-fit-analysis-note sub note,
 entity jobhunt-interaction-note sub note,
     owns interaction-type,
     owns interaction-date;
+
+# Opportunity summary — one per opportunity, overwritten as facts accumulate.
+# Markdown format with sections (## Company, ## Role, ## Fit, ## Contacts, ## Timeline).
+# This is the primary embedding text for the opportunity map.
+entity jobhunt-opp-summary-note sub note;
 
 # Dashboard UI state — stores map coordinates, filter settings as JSON content.
 # Linked to the operator-user via aboutness (note: $state, subject: $operator).

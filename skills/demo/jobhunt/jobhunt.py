@@ -687,6 +687,7 @@ def cmd_add_note(args):
         "fit-analysis": "jobhunt-fit-analysis-note",
         "interaction": "jobhunt-interaction-note",
         "application": "jobhunt-application-note",
+        "opp-summary": "jobhunt-opp-summary-note",
         "general": "note",
     }
 
@@ -757,6 +758,185 @@ def cmd_add_note(args):
                     tx.commit()
 
     print(json.dumps({"success": True, "note_id": note_id, "about": args.about, "type": args.type}))
+
+
+def cmd_upsert_summary(args):
+    """Create or overwrite the opportunity summary."""
+    timestamp = get_timestamp()
+    content = args.content
+
+    # If content is a file path, read it
+    if content.startswith("@"):
+        filepath = content[1:]
+        with open(filepath, "r") as f:
+            content = f.read()
+
+    with get_driver() as driver:
+        # Check for existing brief
+        existing_id = None
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            r = list(tx.query(f'''match
+                $s isa identifiable-entity, has id "{args.about}";
+                (note: $n, subject: $s) isa aboutness;
+                $n isa jobhunt-opp-summary-note, has id $nid;
+            fetch {{ "nid": $nid }};''').resolve())
+            if r:
+                existing_id = r[0]["nid"]
+
+        if existing_id:
+            # Delete old content, insert new
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $n isa jobhunt-opp-summary-note, has id "{existing_id}", has content $c;
+                delete has $c of $n;''').resolve()
+                tx.commit()
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match $n isa jobhunt-opp-summary-note, has id "{existing_id}";
+                insert $n has content "{escape_string(content)}";''').resolve()
+                tx.commit()
+            # Update created-at to track last update
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $n isa jobhunt-opp-summary-note, has id "{existing_id}", has created-at $t;
+                delete has $t of $n;''').resolve()
+                tx.commit()
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match $n isa jobhunt-opp-summary-note, has id "{existing_id}";
+                insert $n has created-at {timestamp};''').resolve()
+                tx.commit()
+            note_id = existing_id
+            action = "updated"
+        else:
+            # Create new brief
+            note_id = generate_id("oppsummary")
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''insert $n isa jobhunt-opp-summary-note,
+                    has id "{note_id}",
+                    has name "brief",
+                    has content "{escape_string(content)}",
+                    has created-at {timestamp};''').resolve()
+                tx.commit()
+            # Link to subject
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $n isa jobhunt-opp-summary-note, has id "{note_id}";
+                    $s isa identifiable-entity, has id "{args.about}";
+                insert (note: $n, subject: $s) isa aboutness;''').resolve()
+                tx.commit()
+            action = "created"
+
+    print(json.dumps({"success": True, "note_id": note_id, "about": args.about, "action": action}))
+
+
+def cmd_regenerate_summary(args):
+    """Fetch all notes + metadata for an opportunity so the agent can write a summary."""
+    opp_id = args.about
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            # Determine opportunity type
+            opp_meta = None
+            for otype in ["jobhunt-position", "jobhunt-engagement", "jobhunt-venture", "jobhunt-lead"]:
+                r = list(tx.query(f'''match $o isa {otype}, has id "{opp_id}", has name $n;
+                    fetch {{ "name": $n }};''').resolve())
+                if r:
+                    opp_meta = {"id": opp_id, "type": otype.replace("jobhunt-", ""), "name": r[0]["name"]}
+                    break
+
+            if not opp_meta:
+                print(json.dumps({"success": False, "error": f"Opportunity {opp_id} not found"}))
+                return
+
+            otype_full = f"jobhunt-{opp_meta['type']}"
+
+            # Fetch optional attributes
+            for attr, key in [("short-name", "short_name"), ("priority-level", "priority"),
+                              ("created-at", "created_at"), ("job-url", "job_url"),
+                              ("salary-range", "salary"), ("location", "location"),
+                              ("remote-policy", "remote_policy")]:
+                try:
+                    r = list(tx.query(f'match $o isa {otype_full}, has id "{opp_id}", has {attr} $v; fetch {{ "v": $v }};').resolve())
+                    if r:
+                        opp_meta[key] = str(r[0]["v"])
+                except:
+                    pass
+
+            # Status
+            if opp_meta["type"] == "position":
+                try:
+                    s = list(tx.query(f'''match $o isa {otype_full}, has id "{opp_id}";
+                        (note: $n, subject: $o) isa aboutness;
+                        $n isa jobhunt-application-note, has application-status $s;
+                    fetch {{ "s": $s }};''').resolve())
+                    if s:
+                        opp_meta["status"] = s[0]["s"]
+                except:
+                    pass
+            else:
+                try:
+                    s = list(tx.query(f'match $o isa {otype_full}, has id "{opp_id}", has opportunity-status $s; fetch {{ "s": $s }};').resolve())
+                    if s:
+                        opp_meta["status"] = s[0]["s"]
+                except:
+                    pass
+
+            # Company
+            try:
+                for rel in ["position-at-company", "opportunity-at-organization"]:
+                    role = "employer" if "position" in rel else "organization"
+                    co = list(tx.query(f'''match $o isa {otype_full}, has id "{opp_id}";
+                        ({rel.split("-")[0]}: $o, {role}: $c) isa {rel};
+                    fetch {{ "name": $c.name }};''').resolve())
+                    if co:
+                        opp_meta["company"] = co[0]["name"]
+                        break
+            except:
+                pass
+
+            # All notes (grouped by type)
+            notes = {}
+            note_types = [
+                ("jobhunt-research-note", "research"),
+                ("jobhunt-fit-analysis-note", "fit-analysis"),
+                ("jobhunt-strategy-note", "strategy"),
+                ("jobhunt-skill-gap-note", "skill-gap"),
+                ("jobhunt-application-note", "application"),
+                ("jobhunt-interview-note", "interview"),
+                ("jobhunt-interaction-note", "interaction"),
+                ("jobhunt-opp-summary-note", "current-summary"),
+                ("note", "general"),
+            ]
+            for ntype, label in note_types:
+                try:
+                    results = list(tx.query(f'''match
+                        $o isa {otype_full}, has id "{opp_id}";
+                        (note: $n, subject: $o) isa aboutness;
+                        $n isa {ntype}, has content $c;
+                    fetch {{ "content": $c }};''').resolve())
+                    if results:
+                        notes[label] = [r["content"] for r in results]
+                except:
+                    pass
+
+            # Contacts linked to this opportunity
+            contacts = []
+            try:
+                contact_r = list(tx.query(f'''match
+                    $o isa {otype_full}, has id "{opp_id}";
+                    (note: $n, subject: $o) isa aboutness;
+                    $n isa jobhunt-interaction-note, has content $c;
+                fetch {{ "content": $c }};''').resolve())
+                # Also try direct interaction links
+            except:
+                pass
+
+    result = {
+        "success": True,
+        "opportunity": opp_meta,
+        "notes": notes,
+        "note_count": sum(len(v) for v in notes.values()),
+    }
+    print(json.dumps(result, default=str))
 
 
 def cmd_add_resource(args):
@@ -2660,6 +2840,15 @@ def main():
     p.add_argument("--fit-summary", help="Fit summary")
     p.add_argument("--id", help="Specific ID")
 
+    # upsert-summary
+    p = subparsers.add_parser("upsert-summary", help="Create or overwrite the opportunity summary")
+    p.add_argument("--about", required=True, help="Opportunity ID")
+    p.add_argument("--content", required=True, help="Summary content (markdown). Prefix with @ to read from file")
+
+    # regenerate-summary
+    p = subparsers.add_parser("regenerate-summary", help="Fetch all notes for an opportunity (agent synthesizes summary)")
+    p.add_argument("--about", required=True, help="Opportunity ID")
+
     # add-resource
     p = subparsers.add_parser("add-resource", help="Add a learning resource")
     p.add_argument("--name", required=True, help="Resource name")
@@ -2752,7 +2941,7 @@ def main():
     p.add_argument("--company-id", dest="company_id", help="Company ID to link")
     p.add_argument("--type", choices=["hourly", "project", "retainer", "advisory"], help="Engagement type")
     p.add_argument("--rate", help="Rate info (e.g. '$200/hr', 'TBD', 'equity only')")
-    p.add_argument("--status", help="Status (e.g. exploring, active, paused, closed)")
+    p.add_argument("--status", choices=["proposal", "active", "paused", "closed"], help="Engagement status")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Priority level")
     p.add_argument("--deadline", help="Deadline (YYYY-MM-DD)")
     p.add_argument("--description", help="Description")
@@ -2762,9 +2951,9 @@ def main():
     p = subparsers.add_parser("add-venture", help="Add a startup/advisory/equity venture")
     p.add_argument("--name", required=True, help="Venture name")
     p.add_argument("--company-id", dest="company_id", help="Company ID to link")
-    p.add_argument("--stage", choices=["exploring", "proposal-sent", "negotiating", "active", "paused", "closed"], help="Venture stage")
+    p.add_argument("--stage", choices=["seed", "series-a", "series-b", "growth", "closed"], help="Venture stage")
     p.add_argument("--equity-type", dest="equity_type", choices=["none", "advisor", "cofounder", "investor"], help="Equity type")
-    p.add_argument("--status", help="Status (e.g. exploring, active, paused, closed)")
+    p.add_argument("--status", choices=["seed", "series-a", "series-b", "growth", "closed"], help="Venture status")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Priority level")
     p.add_argument("--deadline", help="Deadline (YYYY-MM-DD)")
     p.add_argument("--description", help="Description")
@@ -2773,7 +2962,7 @@ def main():
     # add-lead
     p = subparsers.add_parser("add-lead", help="Add an early-stage networking lead")
     p.add_argument("--name", required=True, help="Lead name/description")
-    p.add_argument("--status", help="Status (e.g. exploring, warm, stale)")
+    p.add_argument("--status", choices=["first-contact", "active", "inactive", "closed"], help="Lead status")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Priority level")
     p.add_argument("--description", help="Description")
     p.add_argument("--id", help="Specific ID")
@@ -2862,6 +3051,8 @@ def main():
         "update-status": cmd_update_status,
         "set-short-name": cmd_set_short_name,
         "add-note": cmd_add_note,
+        "upsert-summary": cmd_upsert_summary,
+        "regenerate-summary": cmd_regenerate_summary,
         "add-resource": cmd_add_resource,
         "link-resource": cmd_link_resource,
         "link-collection": cmd_link_collection,
