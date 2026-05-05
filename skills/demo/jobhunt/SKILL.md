@@ -2,15 +2,18 @@
 name: jobhunt
 description: Track job applications, analyze positions, identify skill gaps, and plan your job search strategy
 read_strategy: |
-  On first use: read Quick Start.
+  On first use: read Quick Start + Job Seeker Profile.
+  When searching: read Discovery section (agent-driven search missions).
   When ingesting: read Ingestion + Sensemaking sections.
   When analyzing: read Analysis section.
   Full command reference: read Commands section on demand.
 triggers:
   - add job / ingest job / new position
+  - search for jobs / run a search mission
   - analyze this job posting / make sense of
   - show my pipeline / skill gaps / learning plan
   - update status / job search
+  - create seeker profile / set up job search
 prerequisites:
   - TypeDB running (make db-start)
   - make build-skills
@@ -18,7 +21,11 @@ prerequisites:
 
 # Job Hunting Notebook Skill
 
-Use this skill to manage your job search as a knowledge graph. Claude acts as your career coach, building understanding of positions, companies, and your fit over time.
+Use this skill to manage a job search as a knowledge graph. Claude acts as the career agent — browsing job boards, evaluating postings against the seeker's profile, and building structured understanding of positions, companies, and fit over time.
+
+**Key principle:** The agent does the sensemaking. Scripts are tools that search APIs, store data, and run queries. The agent decides what's relevant, writes the rationale, and manages the pipeline.
+
+**Role model:** The job seeker is a BFO/UFO *role* that inheres in a person. One person can have multiple roles (job seeker, author, evaluator). The role holds search-specific data; the person holds identity data.
 
 ---
 
@@ -68,19 +75,35 @@ uv run python .claude/skills/jobhunt/jobhunt.py add-note \
 
 ---
 
-## 2. Your Skill Profile
+## 2. Job Seeker Profile
 
-Before analyzing jobs, set up your skill profile for gap analysis.
+The job seeker is modeled as a **role** (BFO/UFO pattern) that inheres in a person. The role holds search-specific data (target role, industries, salary expectations) while the person entity holds identity data (name, email, linkedin).
+
+### Create a Seeker Profile
+
+```bash
+uv run python .claude/skills/jobhunt/jobhunt.py create-seeker-profile \
+    --person op-f25ab4b15b0f \
+    --target-role "Principal AI Architect" \
+    --industries "AI, Biotech, Scientific Computing" \
+    --salary "200k-250k" \
+    --location "Remote / SF Bay Area" \
+    --focus "TypeDB-powered knowledge systems, AI for science"
+```
+
+This creates a `jhunt-job-seeker-role` entity linked to the person via `alh-role-bearing`. All pipeline data (opportunities, skills, candidates) scopes to this role.
 
 ### Add Your Skills
+
+Skills are linked to the seeker role via `jhunt-seeker-has-skill`:
 
 ```bash
 uv run python .claude/skills/jobhunt/jobhunt.py add-skill \
     --name "Python" --level "strong"
 
 uv run python .claude/skills/jobhunt/jobhunt.py add-skill \
-    --name "Distributed Systems" --level "some" \
-    --description "Built caching layer, some k8s experience"
+    --name "TypeDB" --level "strong" \
+    --description "Schema design, TypeQL queries, migration tooling"
 
 uv run python .claude/skills/jobhunt/jobhunt.py add-skill \
     --name "Rust" --level "learning"
@@ -96,45 +119,43 @@ uv run python .claude/skills/jobhunt/jobhunt.py list-skills
 
 ---
 
-## 3. Discovery
+## 3. Discovery — Agent-Driven Search Missions
 
-### Automated Foraging (Job Forager)
+Discovery is **agent-driven**: Claude browses job boards, reads postings, evaluates fit against the seeker profile, and adds good matches as candidates with a written rationale. No automated scoring or LLM triage — the agent IS the sensemaker.
 
-Automates discovery by searching job boards and aggregators, filtered by your skill profile.
+### How a Search Mission Works
 
-#### Setup: Add Search Sources
+1. **Operator asks**: "Search Anthropic for ML roles that match my profile"
+2. **Agent reads** the seeker profile (target role, industries, skills from TypeDB)
+3. **Agent searches** using the best tool for the job:
+   - Platform API (`search-source`) for bulk listing from Greenhouse/Lever boards
+   - Web search (`web-search` skill) for browsing careers pages, niche boards, or specific companies
+4. **Agent reads** each posting and evaluates fit
+5. **Agent adds** good matches as candidates with rationale:
+   ```bash
+   uv run python .claude/skills/jobhunt/job_forager.py add-candidate \
+       --title "Research Scientist, AI for Science" \
+       --url "https://boards.greenhouse.io/anthropic/jobs/123" \
+       --location "San Francisco" \
+       --relevance 0.85 \
+       --reason "Strong fit: combines AI evaluation with scientific methodology"
+   ```
+6. **Agent writes** a search mission note summarizing what was found
+7. **Operator reviews** candidates in the dashboard, promotes promising ones to positions
+
+### Configure Search Sources
+
+Sources are company job boards or aggregator platforms the agent can query via API:
 
 ```bash
-# Company board sources
+# Company recruiting pages (Greenhouse/Lever/Ashby)
 uv run python .claude/skills/jobhunt/job_forager.py add-source \
     --name "Anthropic" --platform greenhouse --token anthropic
 
-# Aggregator sources
+# Job board aggregators
 uv run python .claude/skills/jobhunt/job_forager.py add-source \
     --name "ML Jobs" --platform linkedin --query "machine learning" --location "San Francisco"
-uv run python .claude/skills/jobhunt/job_forager.py add-source \
-    --name "Remote ML" --platform remotive --query "machine learning"
 ```
-
-#### Search and Heartbeat
-
-```bash
-# Search one source
-uv run python .claude/skills/jobhunt/job_forager.py search-source --source "ML Jobs"
-
-# Full heartbeat: search all sources, filter, dedup, store
-uv run python .claude/skills/jobhunt/job_forager.py heartbeat --min-relevance 0.1
-```
-
-#### Triage Candidates
-
-```bash
-uv run python .claude/skills/jobhunt/job_forager.py list-candidates --status new
-uv run python .claude/skills/jobhunt/job_forager.py triage --id candidate-abc123 --action reviewed
-uv run python .claude/skills/jobhunt/job_forager.py promote --id candidate-abc123
-```
-
-#### Platform Details
 
 | Platform | Type | Auth | Args |
 |----------|------|------|------|
@@ -145,9 +166,42 @@ uv run python .claude/skills/jobhunt/job_forager.py promote --id candidate-abc12
 | `remotive` | Aggregator | None | `--query`, `--location` |
 | `adzuna` | Aggregator | API key | `--query`, `--location` |
 
-### Web Search for Opportunities
+### Search a Source (Raw Listings)
 
-Use the `web-search` skill to find opportunities not covered by automated foraging. Search for company career pages, niche job boards, or specific role types.
+Returns all job listings from a source for the agent to evaluate:
+
+```bash
+uv run python .claude/skills/jobhunt/job_forager.py search-source --source "Anthropic"
+# Returns: {jobs: [{title, url, location, external_id}, ...]}
+```
+
+The agent reads through these, fetches interesting postings via web-fetch, and adds good matches as candidates.
+
+### Semantic Search Across Candidates
+
+Candidates are embedded in Qdrant on creation. Search by meaning:
+
+```bash
+uv run python .claude/skills/jobhunt/job_forager.py search-candidates \
+    --query "knowledge graph engineering for science" --limit 10
+```
+
+### Manage Candidates
+
+```bash
+# List all candidates
+uv run python .claude/skills/jobhunt/job_forager.py list-candidates
+
+# List by status
+uv run python .claude/skills/jobhunt/job_forager.py list-candidates --status reviewed
+
+# Promote a candidate to a full position (creates jhunt-position + application note)
+uv run python .claude/skills/jobhunt/job_forager.py promote --id candidate-abc123
+```
+
+### Key Principle
+
+The agent does the sensemaking. Scripts are tools — they search APIs, store data, and run queries. The agent decides what's relevant, writes the rationale, and manages the pipeline.
 
 ---
 
@@ -716,7 +770,8 @@ uv run python .claude/skills/jobhunt/jobhunt.py update-opportunity \
 | `link-collection` | Link paper collection to skill gap | `--collection`, `--skill` |
 | `link-resource` | Link resource to a skill requirement | `--resource`, `--requirement` |
 | `link-paper` | Link learning resource to a paper | `--resource`, `--paper` |
-| `list-pipeline` | Show position pipeline | `--status`, `--priority` |
+| `create-seeker-profile` | Create job-seeker role for a person | `--person`, `--target-role`, `--industries` |
+| `list-pipeline` | Show position pipeline | `--status`, `--priority`, `--person` |
 | `show-position` | Position details | `--id` |
 | `show-company` | Company details | `--id` |
 | `show-gaps` | Skill gap analysis | |
@@ -732,15 +787,14 @@ uv run python .claude/skills/jobhunt/jobhunt.py update-opportunity \
 
 | Command | Description | Key Args |
 |---------|-------------|----------|
-| `add-source` | Add a search source | `--name`, `--platform`, `--token`/`--query` |
-| `list-sources` | List search sources | |
+| `add-source` | Add a search source (company board or aggregator) | `--name`, `--platform`, `--token`/`--query` |
+| `list-sources` | List configured search sources | |
 | `remove-source` | Remove a source | `--id`, `--token`, or `--name` |
-| `suggest-sources` | Profile-driven suggestions | |
-| `search-source` | Search one source | `--source` |
-| `heartbeat` | Full discovery cycle | `--min-relevance` |
+| `search-source` | Search one source (raw listings for agent review) | `--source` |
+| `add-candidate` | Add a candidate with agent evaluation | `--title`, `--url`, `--relevance`, `--reason` |
+| `search-candidates` | Semantic search across candidates (Qdrant) | `--query`, `--limit` |
 | `list-candidates` | List candidates | `--status`, `--source` |
-| `triage` | Review/dismiss candidate | `--id`, `--action` |
-| `promote` | Promote to position | `--id` |
+| `promote` | Promote candidate to full position | `--id` |
 
 ---
 
