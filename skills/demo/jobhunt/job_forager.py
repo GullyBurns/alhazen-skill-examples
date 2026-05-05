@@ -21,7 +21,7 @@ Commands:
     heartbeat           Full cycle: all sources → filter → dedup → store → digest
     list-candidates     List discovered candidates (filterable)
     triage              Mark candidates as reviewed/dismissed
-    promote             Promote a candidate to a jobhunt-position
+    promote             Promote a candidate to a jhunt-position
 
 Examples:
     # Company board sources (require --token)
@@ -622,7 +622,7 @@ def load_position_titles() -> list[str]:
     titles = []
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            query = """match $p isa jobhunt-position;
+            query = """match $p isa jhunt-position;
                 fetch { "name": $p.name };"""
             results = list(tx.query(query).resolve())
             for r in results:
@@ -811,17 +811,17 @@ def search_platform(source: dict, profile_terms: dict = None) -> list[dict]:
 
 
 def load_user_skills() -> list[dict]:
-    """Load your-skill entities from TypeDB."""
+    """Load jhunt-your-skill entities from TypeDB."""
     skills = []
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            query = """match $s isa your-skill;
-                fetch { "skill-name": $s.skill-name, "skill-level": $s.skill-level };"""
+            query = """match $s isa jhunt-your-skill;
+                fetch { "slog-skill-name": $s.slog-skill-name, "jhunt-skill-level": $s.jhunt-skill-level };"""
             results = list(tx.query(query).resolve())
             for r in results:
                 skills.append({
-                    "name": r.get("skill-name", ""),
-                    "level": r.get("skill-level", "none"),
+                    "name": r.get("slog-skill-name", ""),
+                    "level": r.get("jhunt-skill-level", "none"),
                 })
     return skills
 
@@ -945,30 +945,30 @@ def filter_candidates(jobs: list[dict], location_filter: bool = True,
 
 
 def load_existing_position_urls() -> set[str]:
-    """Load all job-url values from existing jobhunt-position entities."""
+    """Load all jhunt-job-url values from existing jhunt-position entities."""
     urls = set()
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            query = """match $p isa jobhunt-position, has job-url $url;
-                fetch { "job-url": $p.job-url };"""
+            query = """match $p isa jhunt-position, has jhunt-job-url $url;
+                fetch { "jhunt-job-url": $p.jhunt-job-url };"""
             results = list(tx.query(query).resolve())
             for r in results:
-                url = r.get("job-url")
+                url = r.get("jhunt-job-url")
                 if url:
                     urls.add(url)
     return urls
 
 
 def load_existing_candidate_ext_ids() -> set[str]:
-    """Load all external-job-id values from existing candidates."""
+    """Load all jhunt-external-job-id values from existing candidates."""
     ext_ids = set()
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            query = """match $c isa jobhunt-candidate, has external-job-id $eid;
-                fetch { "external-job-id": $c.external-job-id };"""
+            query = """match $c isa jhunt-candidate, has jhunt-external-job-id $eid;
+                fetch { "jhunt-external-job-id": $c.jhunt-external-job-id };"""
             results = list(tx.query(query).resolve())
             for r in results:
-                eid = r.get("external-job-id")
+                eid = r.get("jhunt-external-job-id")
                 if eid:
                     ext_ids.add(eid)
     return ext_ids
@@ -992,30 +992,30 @@ def deduplicate(candidates: list[dict], existing_urls: set[str], existing_ext_id
 
 
 def load_search_sources() -> list[dict]:
-    """Load all jobhunt-search-source entities."""
+    """Load all jhunt-search-source entities."""
     sources = []
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            query = """match $s isa jobhunt-search-source;
+            query = """match $s isa jhunt-search-source;
                 fetch {
                     "id": $s.id,
                     "name": $s.name,
-                    "board-token": $s.board-token,
-                    "board-platform": $s.board-platform,
-                    "company-url": $s.company-url,
-                    "search-query": $s.search-query,
-                    "search-location": $s.search-location
+                    "jhunt-board-token": $s.jhunt-board-token,
+                    "jhunt-board-platform": $s.jhunt-board-platform,
+                    "alh-company-url": $s.alh-company-url,
+                    "jhunt-search-query": $s.jhunt-search-query,
+                    "jhunt-search-location": $s.jhunt-search-location
                 };"""
             results = list(tx.query(query).resolve())
             for r in results:
                 sources.append({
                     "id": r.get("id"),
                     "name": r.get("name"),
-                    "board_token": r.get("board-token"),
-                    "platform": r.get("board-platform"),
-                    "company_url": r.get("company-url"),
-                    "search_query": r.get("search-query"),
-                    "search_location": r.get("search-location"),
+                    "board_token": r.get("jhunt-board-token"),
+                    "platform": r.get("jhunt-board-platform"),
+                    "company_url": r.get("alh-company-url"),
+                    "search_query": r.get("jhunt-search-query"),
+                    "search_location": r.get("jhunt-search-location"),
                 })
     return sources
 
@@ -1038,18 +1038,18 @@ def store_candidates(candidates: list[dict], source_id: str,
             if ' @ ' not in title and source_name:
                 title = f"{title} @ {source_name}"
 
-            insert_query = f'''insert $c isa jobhunt-candidate,
+            insert_query = f'''insert $c isa jhunt-candidate,
                 has id "{candidate_id}",
                 has name "{escape_string(title)}",
-                has job-url "{escape_string(c['url'])}",
-                has external-job-id "{escape_string(c['external_id'])}",
-                has candidate-status "new",
-                has relevance-score {c.get('relevance', 0.0)},
-                has discovered-at {timestamp},
+                has jhunt-job-url "{escape_string(c['url'])}",
+                has jhunt-external-job-id "{escape_string(c['external_id'])}",
+                has jhunt-candidate-status "new",
+                has jhunt-relevance-score {c.get('relevance', 0.0)},
+                has jhunt-discovered-at {timestamp},
                 has created-at {timestamp}'''
 
             if c.get("location"):
-                insert_query += f', has location "{escape_string(c["location"])}"'
+                insert_query += f', has alh-location "{escape_string(c["location"])}"'
             if snippet:
                 insert_query += f', has description "{escape_string(snippet)}"'
 
@@ -1063,9 +1063,9 @@ def store_candidates(candidates: list[dict], source_id: str,
                 # Link to source
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                     rel_query = f'''match
-                        $s isa jobhunt-search-source, has id "{source_id}";
-                        $c isa jobhunt-candidate, has id "{candidate_id}";
-                    insert (source: $s, candidate: $c) isa source-provides;'''
+                        $s isa jhunt-search-source, has id "{source_id}";
+                        $c isa jhunt-candidate, has id "{candidate_id}";
+                    insert (source: $s, candidate: $c) isa jhunt-source-provides;'''
                     tx.query(rel_query).resolve()
                     tx.commit()
 
@@ -1192,20 +1192,20 @@ def cmd_add_source(args):
     source_id = generate_id("source")
     timestamp = get_timestamp()
 
-    insert_query = f'''insert $s isa jobhunt-search-source,
+    insert_query = f'''insert $s isa jhunt-search-source,
         has id "{source_id}",
         has name "{escape_string(args.name)}",
-        has board-platform "{args.platform}",
+        has jhunt-board-platform "{args.platform}",
         has created-at {timestamp}'''
 
     if token:
-        insert_query += f', has board-token "{escape_string(token)}"'
+        insert_query += f', has jhunt-board-token "{escape_string(token)}"'
     if query_kw:
-        insert_query += f', has search-query "{escape_string(query_kw)}"'
+        insert_query += f', has jhunt-search-query "{escape_string(query_kw)}"'
     if location_kw:
-        insert_query += f', has search-location "{escape_string(location_kw)}"'
+        insert_query += f', has jhunt-search-location "{escape_string(location_kw)}"'
     if args.url:
-        insert_query += f', has company-url "{escape_string(args.url)}"'
+        insert_query += f', has alh-company-url "{escape_string(args.url)}"'
 
     insert_query += ";"
 
@@ -1244,11 +1244,11 @@ def cmd_remove_source(args):
     """Remove a search source by id or token."""
     # Find the source
     if args.id:
-        match_clause = f'$s isa jobhunt-search-source, has id "{args.id}"'
+        match_clause = f'$s isa jhunt-search-source, has id "{args.id}"'
     elif args.token:
-        match_clause = f'$s isa jobhunt-search-source, has board-token "{escape_string(args.token)}"'
+        match_clause = f'$s isa jhunt-search-source, has jhunt-board-token "{escape_string(args.token)}"'
     elif args.name:
-        match_clause = f'$s isa jobhunt-search-source, has name "{escape_string(args.name)}"'
+        match_clause = f'$s isa jhunt-search-source, has name "{escape_string(args.name)}"'
     else:
         print(json.dumps({"success": False, "error": "Must provide --id, --token, or --name"}))
         return
@@ -1266,12 +1266,12 @@ def cmd_remove_source(args):
         source_name = existing[0].get("name")
         source_id = existing[0].get("id")
 
-        # Delete any source-provides relations first
+        # Delete any jhunt-source-provides relations first
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             try:
                 del_rel = f'''match
-                    $s isa jobhunt-search-source, has id "{source_id}";
-                    $r (source: $s, candidate: $c) isa source-provides;
+                    $s isa jhunt-search-source, has id "{source_id}";
+                    $r (source: $s, candidate: $c) isa jhunt-source-provides;
                 delete $r;'''
                 tx.query(del_rel).resolve()
                 tx.commit()
@@ -1298,32 +1298,32 @@ def cmd_suggest_sources(args):
         # Get existing companies from positions
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             query = """match
-                $p isa jobhunt-position, has job-url $url;
-                fetch { "name": $p.name, "job-url": $p.job-url };"""
+                $p isa jhunt-position, has jhunt-job-url $url;
+                fetch { "name": $p.name, "jhunt-job-url": $p.jhunt-job-url };"""
             results = list(tx.query(query).resolve())
 
         # Get existing search sources to exclude
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            src_query = """match $s isa jobhunt-search-source;
-                fetch { "board-token": $s.board-token, "board-platform": $s.board-platform };"""
+            src_query = """match $s isa jhunt-search-source;
+                fetch { "jhunt-board-token": $s.jhunt-board-token, "jhunt-board-platform": $s.jhunt-board-platform };"""
             existing_sources = list(tx.query(src_query).resolve())
 
         # Get user skills
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            skill_query = """match $s isa your-skill;
-                fetch { "skill-name": $s.skill-name, "skill-level": $s.skill-level };"""
+            skill_query = """match $s isa jhunt-your-skill;
+                fetch { "slog-skill-name": $s.slog-skill-name, "jhunt-skill-level": $s.jhunt-skill-level };"""
             skill_results = list(tx.query(skill_query).resolve())
 
     existing_tokens = set()
     for s in existing_sources:
-        token = s.get("board-token")
+        token = s.get("jhunt-board-token")
         if token:
             existing_tokens.add(token.lower())
 
     # Extract company slugs from position URLs
     seen_companies = set()
     for r in results:
-        url = r.get("job-url", "") or ""
+        url = r.get("jhunt-job-url", "") or ""
         name = r.get("name", "") or ""
 
         # Try to detect platform and slug from URL
@@ -1358,8 +1358,8 @@ def cmd_suggest_sources(args):
     skills = []
     for r in skill_results:
         skills.append({
-            "name": r.get("skill-name"),
-            "level": r.get("skill-level"),
+            "name": r.get("slog-skill-name"),
+            "level": r.get("jhunt-skill-level"),
         })
 
     print(json.dumps({
@@ -1375,7 +1375,7 @@ def cmd_suggest_sources(args):
 
 
 def cmd_search_source(args):
-    """Search a single source, score, dedup, and store candidates."""
+    """Search a single source and return raw listings for agent review."""
     # Find the source by token, id, or name
     sources = load_search_sources()
     source = None
@@ -1397,53 +1397,23 @@ def cmd_search_source(args):
         position_titles = load_position_titles()
         profile_terms = extract_profile_search_terms(skills, position_titles)
 
-    # Search the API
+    # Search the API — return raw results for agent evaluation
     jobs = search_platform(source, profile_terms)
-
-    if not jobs:
-        print(json.dumps({
-            "success": True,
-            "source": source["name"],
-            "total_jobs": 0,
-            "new_candidates": 0,
-        }))
-        return
-
-    # Score by relevance
-    skills = load_user_skills()
-    for job in jobs:
-        job["relevance"] = compute_relevance(job, skills)
-
-    # Filter by minimum relevance
-    min_rel = args.min_relevance if hasattr(args, "min_relevance") and args.min_relevance is not None else 0.0
-    relevant = [j for j in jobs if j["relevance"] >= min_rel]
-
-    # Dedup
-    existing_urls = load_existing_position_urls()
-    existing_ext_ids = load_existing_candidate_ext_ids()
-    new_jobs = deduplicate(relevant, existing_urls, existing_ext_ids)
-
-    # Store
-    stored = store_candidates(new_jobs, source["id"], source_name=source["name"]) if new_jobs else []
 
     print(json.dumps({
         "success": True,
         "source": source["name"],
+        "source_id": source["id"],
         "platform": source["platform"],
         "total_jobs": len(jobs),
-        "above_threshold": len(relevant),
-        "after_dedup": len(new_jobs),
-        "stored": len(stored),
-        "min_relevance": min_rel,
-        "candidates": [
+        "jobs": [
             {
-                "id": c.get("candidate_id", ""),
-                "title": c["title"],
-                "relevance": c["relevance"],
-                "location": c.get("location", ""),
-                "url": c["url"],
+                "title": j.get("title", ""),
+                "url": j.get("url", ""),
+                "location": j.get("location", ""),
+                "external_id": j.get("external_id", ""),
             }
-            for c in stored
+            for j in jobs
         ],
     }, indent=2))
 
@@ -1559,22 +1529,22 @@ def cmd_list_candidates(args):
     """List discovered candidates, optionally filtered."""
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            query = "match $c isa jobhunt-candidate"
+            query = "match $c isa jhunt-candidate"
 
             if args.status:
-                query += f', has candidate-status "{args.status}"'
+                query += f', has jhunt-candidate-status "{args.status}"'
 
             query += """;
                 fetch {
                     "id": $c.id,
                     "name": $c.name,
-                    "job-url": $c.job-url,
-                    "location": $c.location,
-                    "relevance-score": $c.relevance-score,
-                    "candidate-status": $c.candidate-status,
-                    "external-job-id": $c.external-job-id,
-                    "discovered-at": $c.discovered-at,
-                    "triage-reason": $c.triage-reason
+                    "jhunt-job-url": $c.jhunt-job-url,
+                    "location": $c.alh-location,
+                    "jhunt-relevance-score": $c.jhunt-relevance-score,
+                    "jhunt-candidate-status": $c.jhunt-candidate-status,
+                    "jhunt-external-job-id": $c.jhunt-external-job-id,
+                    "jhunt-discovered-at": $c.jhunt-discovered-at,
+                    "jhunt-triage-reason": $c.jhunt-triage-reason
                 };"""
 
             results = list(tx.query(query).resolve())
@@ -1582,8 +1552,8 @@ def cmd_list_candidates(args):
             # If filtering by source, get source links
             if args.source:
                 src_query = f'''match
-                    $s isa jobhunt-search-source, has board-token "{escape_string(args.source)}";
-                    (source: $s, candidate: $c) isa source-provides;
+                    $s isa jhunt-search-source, has jhunt-board-token "{escape_string(args.source)}";
+                    (source: $s, candidate: $c) isa jhunt-source-provides;
                 fetch {{ "id": $c.id }};'''
                 src_results = list(tx.query(src_query).resolve())
                 source_ids = {r.get("id") for r in src_results}
@@ -1594,13 +1564,13 @@ def cmd_list_candidates(args):
         candidates.append({
             "id": r.get("id"),
             "title": r.get("name"),
-            "url": r.get("job-url"),
+            "url": r.get("jhunt-job-url"),
             "location": r.get("location"),
-            "relevance": r.get("relevance-score"),
-            "status": r.get("candidate-status"),
-            "external_id": r.get("external-job-id"),
-            "discovered_at": r.get("discovered-at"),
-            "triage_reason": r.get("triage-reason"),
+            "relevance": r.get("jhunt-relevance-score"),
+            "status": r.get("jhunt-candidate-status"),
+            "external_id": r.get("jhunt-external-job-id"),
+            "discovered_at": r.get("jhunt-discovered-at"),
+            "triage_reason": r.get("jhunt-triage-reason"),
         })
 
     # Sort by relevance descending
@@ -1634,8 +1604,8 @@ def cmd_triage(args):
     with get_driver() as driver:
         # Check existence
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            check = f'''match $c isa jobhunt-candidate, has id "{args.id}";
-                fetch {{ "id": $c.id, "name": $c.name, "candidate-status": $c.candidate-status }};'''
+            check = f'''match $c isa jhunt-candidate, has id "{args.id}";
+                fetch {{ "id": $c.id, "name": $c.name, "jhunt-candidate-status": $c.jhunt-candidate-status }};'''
             existing = list(tx.query(check).resolve())
 
         if not existing:
@@ -1645,15 +1615,15 @@ def cmd_triage(args):
         # Delete old status, add new one
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             update_query = f'''match
-                $c isa jobhunt-candidate, has id "{args.id}", has candidate-status $old;
+                $c isa jhunt-candidate, has id "{args.id}", has jhunt-candidate-status $old;
             delete $c has $old;'''
             tx.query(update_query).resolve()
             tx.commit()
 
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             insert_query = f'''match
-                $c isa jobhunt-candidate, has id "{args.id}";
-            insert $c has candidate-status "{args.action}";'''
+                $c isa jhunt-candidate, has id "{args.id}";
+            insert $c has jhunt-candidate-status "{args.action}";'''
             tx.query(insert_query).resolve()
             tx.commit()
 
@@ -1665,17 +1635,17 @@ def cmd_triage(args):
 
 
 def cmd_promote(args):
-    """Promote a candidate to a full jobhunt-position."""
+    """Promote a candidate to a full jhunt-position."""
     with get_driver() as driver:
         # Load candidate
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            query = f'''match $c isa jobhunt-candidate, has id "{args.id}";
+            query = f'''match $c isa jhunt-candidate, has id "{args.id}";
                 fetch {{
                     "id": $c.id,
                     "name": $c.name,
-                    "job-url": $c.job-url,
-                    "location": $c.location,
-                    "candidate-status": $c.candidate-status
+                    "jhunt-job-url": $c.jhunt-job-url,
+                    "location": $c.alh-location,
+                    "jhunt-candidate-status": $c.jhunt-candidate-status
                 }};'''
             results = list(tx.query(query).resolve())
 
@@ -1685,22 +1655,22 @@ def cmd_promote(args):
 
         candidate = results[0]
         title = candidate.get("name") or "Untitled"
-        url = candidate.get("job-url") or ""
+        url = candidate.get("jhunt-job-url") or ""
         location = candidate.get("location") or ""
 
         # Create position
         position_id = generate_id("position")
         timestamp = get_timestamp()
 
-        pos_query = f'''insert $p isa jobhunt-position,
+        pos_query = f'''insert $p isa jhunt-position,
             has id "{position_id}",
             has name "{escape_string(title)}",
             has created-at {timestamp}'''
 
         if url:
-            pos_query += f', has job-url "{escape_string(url)}"'
+            pos_query += f', has jhunt-job-url "{escape_string(url)}"'
         if location:
-            pos_query += f', has location "{escape_string(location)}"'
+            pos_query += f', has alh-location "{escape_string(location)}"'
 
         pos_query += ";"
 
@@ -1711,33 +1681,33 @@ def cmd_promote(args):
         # Create initial application note
         note_id = generate_id("note")
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-            note_query = f'''insert $n isa jobhunt-application-note,
+            note_query = f'''insert $n isa jhunt-application-note,
                 has id "{note_id}",
                 has name "Application Status",
-                has application-status "researching",
+                has jhunt-application-status "researching",
                 has created-at {timestamp};'''
             tx.query(note_query).resolve()
             tx.commit()
 
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             about_query = f'''match
-                $n isa note, has id "{note_id}";
-                $p isa jobhunt-position, has id "{position_id}";
-            insert (note: $n, subject: $p) isa aboutness;'''
+                $n isa alh-note, has id "{note_id}";
+                $p isa jhunt-position, has id "{position_id}";
+            insert (note: $n, subject: $p) isa alh-aboutness;'''
             tx.query(about_query).resolve()
             tx.commit()
 
         # Update candidate status to "promoted"
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(f'''match
-                $c isa jobhunt-candidate, has id "{args.id}", has candidate-status $old;
+                $c isa jhunt-candidate, has id "{args.id}", has jhunt-candidate-status $old;
             delete $c has $old;''').resolve()
             tx.commit()
 
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(f'''match
-                $c isa jobhunt-candidate, has id "{args.id}";
-            insert $c has candidate-status "promoted";''').resolve()
+                $c isa jhunt-candidate, has id "{args.id}";
+            insert $c has jhunt-candidate-status "promoted";''').resolve()
             tx.commit()
 
     print(json.dumps({
@@ -1749,6 +1719,101 @@ def cmd_promote(args):
         "message": f"Candidate promoted to position {position_id}. "
                    "Use 'ingest-job --url' or ask Claude to analyze it for full sensemaking.",
     }, indent=2))
+
+
+def cmd_add_candidate(args):
+    """Add a candidate directly (agent-driven search mission)."""
+    candidate_id = generate_id("candidate")
+    timestamp = get_timestamp()
+
+    query = f'''insert $c isa jhunt-candidate,
+        has id "{candidate_id}",
+        has name "{escape_string(args.title)}",
+        has jhunt-candidate-status "reviewed",
+        has jhunt-discovered-at {timestamp}'''
+
+    if args.url:
+        query += f', has jhunt-job-url "{escape_string(args.url)}"'
+    if args.location:
+        query += f', has alh-location "{escape_string(args.location)}"'
+    if args.relevance is not None:
+        query += f', has jhunt-relevance-score {args.relevance}'
+    if args.reason:
+        query += f', has jhunt-triage-reason "{escape_string(args.reason)}"'
+
+    query += ";"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(query).resolve()
+            tx.commit()
+
+        # Link to source if provided
+        if args.source_id:
+            try:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $s isa jhunt-search-source, has id "{escape_string(args.source_id)}";
+                        $c isa jhunt-candidate, has id "{candidate_id}";
+                    insert (source: $s, candidate: $c) isa jhunt-source-provides;''').resolve()
+                    tx.commit()
+            except Exception:
+                pass  # source may not exist
+
+        # Link to active seeker pipeline
+        try:
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $role isa jhunt-job-seeker-role, has alh-role-status "active";
+                    $c isa jhunt-candidate, has id "{candidate_id}";
+                insert (seeker: $role, opportunity: $c) isa jhunt-seeker-pipeline;''').resolve()
+                tx.commit()
+        except Exception:
+            pass  # seeker role may not exist, or candidate not an opportunity subtype
+
+    # Embed in Qdrant if available
+    embed_text_str = f"{args.title}"
+    if args.location:
+        embed_text_str += f" | {args.location}"
+    if args.reason:
+        embed_text_str += f" | {args.reason}"
+
+    embedded = False
+    try:
+        from embedding_map import embed_and_upsert_candidate
+        embed_and_upsert_candidate(candidate_id, embed_text_str)
+        embedded = True
+    except Exception:
+        pass  # Qdrant/Voyage not available
+
+    print(json.dumps({
+        "success": True,
+        "candidate_id": candidate_id,
+        "title": args.title,
+        "status": "reviewed",
+        "embedded": embedded,
+        "message": f"Candidate '{args.title}' added as reviewed.",
+    }, indent=2))
+
+
+def cmd_search_candidates(args):
+    """Semantic search across candidates using Qdrant embeddings."""
+    try:
+        from embedding_map import search_candidates_semantic
+        results = search_candidates_semantic(args.query, limit=args.limit)
+        print(json.dumps({
+            "success": True,
+            "query": args.query,
+            "results": results,
+            "count": len(results),
+        }, indent=2))
+    except ImportError:
+        print(json.dumps({
+            "success": False,
+            "error": "Qdrant/Voyage not available. Start Qdrant and set VOYAGE_API_KEY.",
+        }))
+    except Exception as e:
+        print(json.dumps({"success": False, "error": str(e)}))
 
 
 # =============================================================================
@@ -1780,29 +1845,30 @@ def main():
     p.add_argument("--token", help="Board token to remove")
     p.add_argument("--name", help="Source name to remove")
 
-    # suggest-sources
-    subparsers.add_parser("suggest-sources", help="Suggest companies from your profile/positions")
+    # search-source (raw API search — agent evaluates results)
+    p = subparsers.add_parser("search-source", help="Search a single source (returns raw listings for agent review)")
+    p.add_argument("--source", required=True, help="Source name, ID, or board token")
 
-    # search-source
-    p = subparsers.add_parser("search-source", help="Search a single source")
-    p.add_argument("--source", required=True, help="Source board-token or entity ID")
-    p.add_argument("--min-relevance", type=float, default=0.0, help="Minimum relevance score (0.0-1.0)")
+    # add-candidate (agent creates candidates directly with rationale)
+    p = subparsers.add_parser("add-candidate", help="Add a candidate with agent evaluation")
+    p.add_argument("--title", required=True, help="Job title")
+    p.add_argument("--url", help="Job posting URL")
+    p.add_argument("--location", help="Job location")
+    p.add_argument("--relevance", type=float, help="Agent's relevance score (0.0-1.0)")
+    p.add_argument("--reason", help="Agent's fit rationale")
+    p.add_argument("--source-id", dest="source_id", help="Source ID to link candidate to")
 
-    # heartbeat
-    p = subparsers.add_parser("heartbeat", help="Full cycle: search all sources, filter, store, digest")
-    p.add_argument("--min-relevance", type=float, default=0.0, help="Minimum relevance score (0.0-1.0)")
+    # search-candidates (semantic search via Qdrant)
+    p = subparsers.add_parser("search-candidates", help="Semantic search across candidates")
+    p.add_argument("--query", required=True, help="Search query")
+    p.add_argument("--limit", type=int, default=10, help="Max results")
 
     # list-candidates
     p = subparsers.add_parser("list-candidates", help="List discovered candidates")
     p.add_argument("--status", choices=["new", "reviewed", "promoted", "dismissed"], help="Filter by status")
-    p.add_argument("--source", help="Filter by source board-token")
+    p.add_argument("--source", help="Filter by source jhunt-board-token")
     p.add_argument("--limit", type=int, default=None, help="Max candidates to return")
     p.add_argument("--offset", type=int, default=None, help="Skip first N candidates (after sort)")
-
-    # triage
-    p = subparsers.add_parser("triage", help="Mark candidate as reviewed/dismissed")
-    p.add_argument("--id", required=True, help="Candidate entity ID")
-    p.add_argument("--action", required=True, choices=["reviewed", "dismissed"], help="Triage action")
 
     # promote
     p = subparsers.add_parser("promote", help="Promote candidate to full position")
@@ -1826,11 +1892,10 @@ def main():
         "add-source": cmd_add_source,
         "list-sources": cmd_list_sources,
         "remove-source": cmd_remove_source,
-        "suggest-sources": cmd_suggest_sources,
         "search-source": cmd_search_source,
-        "heartbeat": cmd_heartbeat,
+        "add-candidate": cmd_add_candidate,
+        "search-candidates": cmd_search_candidates,
         "list-candidates": cmd_list_candidates,
-        "triage": cmd_triage,
         "promote": cmd_promote,
     }
 

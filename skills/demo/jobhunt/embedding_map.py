@@ -66,8 +66,8 @@ def fetch_opportunities():
 
     with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
         # Get all opportunity subtypes
-        for otype in ["jobhunt-position", "jobhunt-engagement", "jobhunt-venture", "jobhunt-lead"]:
-            type_label = otype.replace("jobhunt-", "")
+        for otype in ["jhunt-position", "jhunt-engagement", "jhunt-venture", "jhunt-lead"]:
+            type_label = otype.replace("jhunt-", "")
             opps = list(tx.query(f'''match $o isa {otype}, has id $id, has name $n;
                 fetch {{ "id": $id, "name": $n }};''').resolve())
 
@@ -75,9 +75,9 @@ def fetch_opportunities():
                 oid = opp["id"]
                 oname = opp["name"]
 
-                # Get short-name, priority, created-at
+                # Get jhunt-short-name, priority, created-at
                 extras = {}
-                for attr in ["short-name", "priority-level", "created-at"]:
+                for attr in ["jhunt-short-name", "jhunt-priority-level", "created-at"]:
                     try:
                         r = list(tx.query(f'''match $o isa {otype}, has id "{oid}", has {attr} $v;
                             fetch {{ "v": $v }};''').resolve())
@@ -86,19 +86,19 @@ def fetch_opportunities():
                     except:
                         pass
 
-                # Get status: application-status from note (positions) or opportunity-status from entity
+                # Get status: jhunt-application-status from note (positions) or jhunt-opportunity-status from entity
                 try:
-                    if otype == "jobhunt-position":
+                    if otype == "jhunt-position":
                         status_r = list(tx.query(f'''match
                             $o isa {otype}, has id "{oid}";
-                            (note: $n, subject: $o) isa aboutness;
-                            $n isa jobhunt-application-note, has application-status $s;
+                            (note: $n, subject: $o) isa alh-aboutness;
+                            $n isa jhunt-application-note, has jhunt-application-status $s;
                         fetch {{ "status": $s }};''').resolve())
                         if status_r:
                             extras["status"] = status_r[0]["status"]
                     else:
                         status_r = list(tx.query(f'''match
-                            $o isa {otype}, has id "{oid}", has opportunity-status $s;
+                            $o isa {otype}, has id "{oid}", has jhunt-opportunity-status $s;
                         fetch {{ "status": $s }};''').resolve())
                         if status_r:
                             extras["status"] = status_r[0]["status"]
@@ -108,7 +108,7 @@ def fetch_opportunities():
                 # Get company
                 company = None
                 try:
-                    for rel in ["position-at-company", "opportunity-at-organization"]:
+                    for rel in ["jhunt-position-at-company", "jhunt-opportunity-at-organization"]:
                         role = "employer" if "position" in rel else "organization"
                         co_r = list(tx.query(f'''match
                             $o isa {otype}, has id "{oid}";
@@ -125,8 +125,8 @@ def fetch_opportunities():
                 try:
                     summary_r = list(tx.query(f'''match
                         $o isa {otype}, has id "{oid}";
-                        (note: $n, subject: $o) isa aboutness;
-                        $n isa jobhunt-opp-summary-note, has content $c;
+                        (note: $n, subject: $o) isa alh-aboutness;
+                        $n isa jhunt-opp-summary-note, has content $c;
                     fetch {{ "content": $c }};''').resolve())
                     if summary_r:
                         summary_text = summary_r[0]["content"]
@@ -135,12 +135,12 @@ def fetch_opportunities():
 
                 notes_text = []
                 if not summary_text:
-                    for ntype in ["jobhunt-research-note", "jobhunt-fit-analysis-note",
-                                  "jobhunt-strategy-note", "jobhunt-skill-gap-note", "note"]:
+                    for ntype in ["jhunt-research-note", "jhunt-fit-analysis-note",
+                                  "jhunt-strategy-note", "jhunt-skill-gap-note", "note"]:
                         try:
                             notes = list(tx.query(f'''match
                                 $o isa {otype}, has id "{oid}";
-                                (note: $n, subject: $o) isa aboutness;
+                                (note: $n, subject: $o) isa alh-aboutness;
                                 $n isa {ntype}, has content $c;
                             fetch {{ "content": $c }};''').resolve())
                             for n in notes:
@@ -164,10 +164,10 @@ def fetch_opportunities():
                 opportunities.append({
                     "id": oid,
                     "name": oname,
-                    "short_name": extras.get("short-name", oname[:30]),
+                    "short_name": extras.get("jhunt-short-name", oname[:30]),
                     "type": type_label,
                     "status": extras.get("status"),
-                    "priority": extras.get("priority-level"),
+                    "priority": extras.get("jhunt-priority-level"),
                     "company": company,
                     "created_at": str(extras.get("created-at", "")) or None,
                     "text": embed_text,
@@ -261,7 +261,7 @@ def cmd_map(args):
         tdb = get_typedb_driver()
         with tdb.transaction(TYPEDB_DATABASE, TxType.READ) as tx_read:
             states = list(tx_read.query('''match
-                $n isa jobhunt-dashboard-state-note, has content $c, has name "embedding-map-coordinates";
+                $n isa jhunt-dashboard-state-note, has content $c, has name "embedding-map-coordinates";
             fetch { "content": $c };''').resolve())
             if states:
                 cached = json.loads(states[0]["content"])
@@ -319,8 +319,8 @@ def cmd_map(args):
     tdb_meta = get_typedb_driver()
     metadata = {}
     with tdb_meta.transaction(TYPEDB_DATABASE, TxType.READ) as tx_m:
-        for otype in ["jobhunt-position", "jobhunt-engagement", "jobhunt-venture", "jobhunt-lead"]:
-            type_label = otype.replace("jobhunt-", "")
+        for otype in ["jhunt-position", "jhunt-engagement", "jhunt-venture", "jhunt-lead"]:
+            type_label = otype.replace("jhunt-", "")
             opps = list(tx_m.query(f'''match $o isa {otype}, has id $id, has name $n;
                 fetch {{ "id": $id, "name": $n }};''').resolve())
             for opp in opps:
@@ -329,24 +329,24 @@ def cmd_map(args):
                     continue
                 meta = {"id": oid, "name": opp["name"], "type": type_label}
                 # Fetch optional attributes
-                for attr, key in [("short-name", "short_name"), ("priority-level", "priority"), ("created-at", "created_at")]:
+                for attr, key in [("jhunt-short-name", "short_name"), ("jhunt-priority-level", "priority"), ("created-at", "created_at")]:
                     try:
                         r = list(tx_m.query(f'match $o isa {otype}, has id "{oid}", has {attr} $v; fetch {{ "v": $v }};').resolve())
                         if r:
                             meta[key] = str(r[0]["v"]) if attr == "created-at" else r[0]["v"]
                     except:
                         pass
-                # Status: application-status from note (positions) or opportunity-status from entity
+                # Status: jhunt-application-status from note (positions) or jhunt-opportunity-status from entity
                 try:
-                    if otype == "jobhunt-position":
+                    if otype == "jhunt-position":
                         s = list(tx_m.query(f'''match $o isa {otype}, has id "{oid}";
-                            (note: $n, subject: $o) isa aboutness;
-                            $n isa jobhunt-application-note, has application-status $s;
+                            (note: $n, subject: $o) isa alh-aboutness;
+                            $n isa jhunt-application-note, has jhunt-application-status $s;
                         fetch {{ "s": $s }};''').resolve())
                         if s:
                             meta["status"] = s[0]["s"]
                     else:
-                        s = list(tx_m.query(f'''match $o isa {otype}, has id "{oid}", has opportunity-status $s;
+                        s = list(tx_m.query(f'''match $o isa {otype}, has id "{oid}", has jhunt-opportunity-status $s;
                         fetch {{ "s": $s }};''').resolve())
                         if s:
                             meta["status"] = s[0]["s"]
@@ -354,7 +354,7 @@ def cmd_map(args):
                     pass
                 # Company
                 try:
-                    for rel in ["position-at-company", "opportunity-at-organization"]:
+                    for rel in ["jhunt-position-at-company", "jhunt-opportunity-at-organization"]:
                         role = "employer" if "position" in rel else "organization"
                         co = list(tx_m.query(f'''match $o isa {otype}, has id "{oid}";
                             ({rel.split("-")[0]}: $o, {role}: $c) isa {rel};
@@ -367,8 +367,8 @@ def cmd_map(args):
                 # Opp summary note
                 try:
                     sm = list(tx_m.query(f'''match $o isa {otype}, has id "{oid}";
-                        (note: $n, subject: $o) isa aboutness;
-                        $n isa jobhunt-opp-summary-note, has content $c;
+                        (note: $n, subject: $o) isa alh-aboutness;
+                        $n isa jhunt-opp-summary-note, has content $c;
                     fetch {{ "c": $c }};''').resolve())
                     if sm:
                         meta["summary_text"] = sm[0]["c"]
@@ -404,14 +404,14 @@ def cmd_map(args):
         # Delete old state note if exists
         with tdb.transaction(TYPEDB_DATABASE, TxType.WRITE) as tx_w:
             try:
-                tx_w.query('match $n isa jobhunt-dashboard-state-note, has name "embedding-map-coordinates"; delete $n;').resolve()
+                tx_w.query('match $n isa jhunt-dashboard-state-note, has name "embedding-map-coordinates"; delete $n;').resolve()
             except Exception:
                 pass
             tx_w.commit()
         # Insert new state note
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
         with tdb.transaction(TYPEDB_DATABASE, TxType.WRITE) as tx_w:
-            tx_w.query(f'''insert $n isa jobhunt-dashboard-state-note,
+            tx_w.query(f'''insert $n isa jhunt-dashboard-state-note,
                 has id "dashboard-state-embedding-map",
                 has name "embedding-map-coordinates",
                 has content "{cache_json}",
@@ -452,3 +452,71 @@ if __name__ == "__main__":
         cmd_embed_and_map(args)
     else:
         parser.print_help()
+
+
+# =============================================================================
+# Candidate embedding helpers (called from job_forager.py)
+# =============================================================================
+
+CANDIDATES_COLLECTION = "jobhunt-candidates"
+
+
+def _ensure_candidates_collection():
+    """Create the candidates Qdrant collection if it doesn't exist."""
+    from qdrant_client.models import Distance, VectorParams
+    client = get_qdrant_client()
+    collections = [c.name for c in client.get_collections().collections]
+    if CANDIDATES_COLLECTION not in collections:
+        client.create_collection(
+            collection_name=CANDIDATES_COLLECTION,
+            vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
+        )
+    return client
+
+
+def embed_and_upsert_candidate(candidate_id: str, text: str):
+    """Embed a candidate's text and upsert into Qdrant."""
+    from skillful_alhazen.utils.embeddings import embed_texts
+    from qdrant_client.models import PointStruct
+    import hashlib
+
+    embeddings = embed_texts([text], input_type="document")
+    if not embeddings:
+        return
+
+    client = _ensure_candidates_collection()
+    # Use a numeric hash of the ID as the Qdrant point ID
+    point_id = int(hashlib.md5(candidate_id.encode()).hexdigest()[:15], 16)
+    client.upsert(
+        collection_name=CANDIDATES_COLLECTION,
+        points=[PointStruct(
+            id=point_id,
+            vector=embeddings[0],
+            payload={"candidate_id": candidate_id, "text": text},
+        )],
+    )
+
+
+def search_candidates_semantic(query: str, limit: int = 10) -> list[dict]:
+    """Semantic search across candidate embeddings."""
+    from skillful_alhazen.utils.embeddings import embed_texts
+
+    embeddings = embed_texts([query], input_type="query")
+    if not embeddings:
+        return []
+
+    client = _ensure_candidates_collection()
+    results = client.query_points(
+        collection_name=CANDIDATES_COLLECTION,
+        query=embeddings[0],
+        limit=limit,
+    ).points
+
+    return [
+        {
+            "candidate_id": r.payload.get("candidate_id", ""),
+            "text": r.payload.get("text", ""),
+            "score": r.score,
+        }
+        for r in results
+    ]
