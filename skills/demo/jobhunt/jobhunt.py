@@ -343,14 +343,14 @@ def cmd_ingest_job(args):
     with get_driver() as driver:
         # Create position placeholder (Claude will update with extracted info)
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-            position_query = f'''insert $p isa jobhunt-position,
+            position_query = f'''insert $p isa jhunt-position,
                 has id "{position_id}",
                 has name "{escape_string(placeholder_name)}",
-                has job-url "{escape_string(url)}",
+                has jhunt-job-url "{escape_string(url)}",
                 has created-at {timestamp}'''
 
             if args.priority:
-                position_query += f', has priority-level "{args.priority}"'
+                position_query += f', has jhunt-priority-level "{args.priority}"'
 
             position_query += ";"
             tx.query(position_query).resolve()
@@ -364,7 +364,7 @@ def cmd_ingest_job(args):
                     content=content,
                     mime_type="text/html",
                 )
-                artifact_query = f'''insert $a isa jobhunt-job-description,
+                artifact_query = f'''insert $a isa jhunt-job-description,
                     has id "{artifact_id}",
                     has name "Job Description: {escape_string(placeholder_name)}",
                     has cache-path "{cache_result['cache_path']}",
@@ -374,7 +374,7 @@ def cmd_ingest_job(args):
                     has source-uri "{escape_string(url)}",
                     has created-at {timestamp};'''
             else:
-                artifact_query = f'''insert $a isa jobhunt-job-description,
+                artifact_query = f'''insert $a isa jhunt-job-description,
                     has id "{artifact_id}",
                     has name "Job Description: {escape_string(placeholder_name)}",
                     has content "{escape_string(content)}",
@@ -386,19 +386,19 @@ def cmd_ingest_job(args):
         # Link artifact to position
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             rep_query = f'''match
-                $a isa jobhunt-job-description, has id "{artifact_id}";
-                $p isa jobhunt-position, has id "{position_id}";
-            insert (artifact: $a, referent: $p) isa representation;'''
+                $a isa jhunt-job-description, has id "{artifact_id}";
+                $p isa jhunt-position, has id "{position_id}";
+            insert (artifact: $a, referent: $p) isa alh-representation;'''
             tx.query(rep_query).resolve()
             tx.commit()
 
         # Create initial application note with researching status
         app_note_id = generate_id("note")
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-            note_query = f'''insert $n isa jobhunt-application-note,
+            note_query = f'''insert $n isa jhunt-application-note,
                 has id "{app_note_id}",
                 has name "Application Status",
-                has application-status "researching",
+                has jhunt-application-status "researching",
                 has created-at {timestamp};'''
             tx.query(note_query).resolve()
             tx.commit()
@@ -406,9 +406,9 @@ def cmd_ingest_job(args):
         # Link note to position
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             about_query = f'''match
-                $n isa note, has id "{app_note_id}";
-                $p isa jobhunt-position, has id "{position_id}";
-            insert (note: $n, subject: $p) isa aboutness;'''
+                $n isa alh-note, has id "{app_note_id}";
+                $p isa jhunt-position, has id "{position_id}";
+            insert (note: $n, subject: $p) isa alh-aboutness;'''
             tx.query(about_query).resolve()
             tx.commit()
 
@@ -417,21 +417,21 @@ def cmd_ingest_job(args):
             for tag_name in args.tags:
                 tag_id = generate_id("tag")
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-                    tag_check = f'match $t isa tag, has name "{tag_name}"; fetch {{ "id": $t.id }};' 
+                    tag_check = f'match $t isa alh-tag, has name "{tag_name}"; fetch {{ "id": $t.id }};' 
                     existing_tag = list(tx.query(tag_check).resolve())
 
                 if not existing_tag:
                     with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                         tx.query(
-                            f'insert $t isa tag, has id "{tag_id}", has name "{tag_name}";'
+                            f'insert $t isa alh-tag, has id "{tag_id}", has name "{tag_name}";'
                         ).resolve()
                         tx.commit()
 
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                     tx.query(f'''match
-                        $p isa jobhunt-position, has id "{position_id}";
-                        $t isa tag, has name "{tag_name}";
-                    insert (tagged-entity: $p, tag: $t) isa tagging;''').resolve()
+                        $p isa jhunt-position, has id "{position_id}";
+                        $t isa alh-tag, has name "{tag_name}";
+                    insert (tagged-entity: $p, tag: $t) isa alh-tagging;''').resolve()
                     tx.commit()
 
     # Prepare output
@@ -452,25 +452,34 @@ def cmd_ingest_job(args):
     else:
         output["storage"] = "inline"
 
+    # Link to active job-seeker role
+    try:
+        with get_driver() as d:
+            _link_opportunity_to_seeker(d, position_id)
+    except Exception:
+        pass  # seeker role may not exist yet
+
     print(json.dumps(output, indent=2))
+
+
 def cmd_add_company(args):
     """Add a company to track."""
     company_id = args.id or generate_id("company")
     timestamp = get_timestamp()
 
-    query = f'''insert $c isa jobhunt-company,
+    query = f'''insert $c isa jhunt-company,
         has id "{company_id}",
         has name "{escape_string(args.name)}",
         has created-at {timestamp}'''
 
     if args.url:
-        query += f', has company-url "{escape_string(args.url)}"'
+        query += f', has alh-company-url "{escape_string(args.url)}"'
     if args.linkedin:
-        query += f', has linkedin-url "{escape_string(args.linkedin)}"'
+        query += f', has alh-linkedin-url "{escape_string(args.linkedin)}"'
     if args.description:
         query += f', has description "{escape_string(args.description)}"'
-    if args.location:
-        query += f', has location "{escape_string(args.location)}"'
+    if args.alh-location:
+        query += f', has alh-location "{escape_string(args.alh-location)}"'
 
     query += ";"
 
@@ -487,25 +496,25 @@ def cmd_add_position(args):
     position_id = args.id or generate_id("position")
     timestamp = get_timestamp()
 
-    query = f'''insert $p isa jobhunt-position,
+    query = f'''insert $p isa jhunt-position,
         has id "{position_id}",
         has name "{escape_string(args.title)}",
         has created-at {timestamp}'''
 
     if args.url:
-        query += f', has job-url "{escape_string(args.url)}"'
-    if args.location:
-        query += f', has location "{escape_string(args.location)}"'
+        query += f', has jhunt-job-url "{escape_string(args.url)}"'
+    if args.alh-location:
+        query += f', has alh-location "{escape_string(args.alh-location)}"'
     if args.remote_policy:
-        query += f', has remote-policy "{args.remote_policy}"'
+        query += f', has jhunt-remote-policy "{args.remote_policy}"'
     if args.salary:
-        query += f', has salary-range "{escape_string(args.salary)}"'
+        query += f', has jhunt-salary-range "{escape_string(args.salary)}"'
     if args.team_size:
-        query += f', has team-size "{escape_string(args.team_size)}"'
+        query += f', has jhunt-team-size "{escape_string(args.team_size)}"'
     if args.priority:
-        query += f', has priority-level "{args.priority}"'
-    if args.deadline:
-        query += f", has deadline {parse_date(args.deadline)}"
+        query += f', has jhunt-priority-level "{args.priority}"'
+    if args.jhunt-deadline:
+        query += f", has jhunt-deadline {parse_date(args.jhunt-deadline)}"
 
     query += ";"
 
@@ -522,7 +531,7 @@ def cmd_add_position(args):
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 # Look up existing company by name
                 existing = list(tx.query(f'''match
-                    $c isa jobhunt-company, has id $cid, has name $cn;
+                    $c isa jhunt-company, has id $cid, has name $cn;
                 fetch {{ "id": $cid, "name": $cn }};''').resolve())
 
                 # Case-insensitive exact match
@@ -535,35 +544,41 @@ def cmd_add_position(args):
                 if not company_id_linked:
                     # Create new company
                     company_id_linked = generate_id("company")
-                    tx.query(f'''insert $c isa jobhunt-company,
+                    tx.query(f'''insert $c isa jhunt-company,
                         has id "{company_id_linked}",
                         has name "{escape_string(company_name)}",
                         has created-at {timestamp};''').resolve()
 
-                # Create position-at-company relation
+                # Create jhunt-position-at-company relation
                 tx.query(f'''match
-                    $p isa jobhunt-position, has id "{position_id}";
-                    $c isa jobhunt-company, has id "{company_id_linked}";
-                insert (position: $p, employer: $c) isa position-at-company;''').resolve()
+                    $p isa jhunt-position, has id "{position_id}";
+                    $c isa jhunt-company, has id "{company_id_linked}";
+                insert (position: $p, employer: $c) isa jhunt-position-at-company;''').resolve()
                 tx.commit()
 
         # Create initial application note
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-            note_query = f'''insert $n isa jobhunt-application-note,
+            note_query = f'''insert $n isa jhunt-application-note,
                 has id "{app_note_id}",
                 has name "Application Status",
-                has application-status "researching",
+                has jhunt-application-status "researching",
                 has created-at {timestamp};'''
             tx.query(note_query).resolve()
             tx.commit()
 
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             about_query = f'''match
-                $n isa note, has id "{app_note_id}";
-                $p isa jobhunt-position, has id "{position_id}";
-            insert (note: $n, subject: $p) isa aboutness;'''
+                $n isa alh-note, has id "{app_note_id}";
+                $p isa jhunt-position, has id "{position_id}";
+            insert (note: $n, subject: $p) isa alh-aboutness;'''
             tx.query(about_query).resolve()
             tx.commit()
+
+    # Link to active job-seeker role
+    try:
+        _link_opportunity_to_seeker(driver, position_id)
+    except Exception:
+        pass
 
     print(json.dumps({"success": True, "position_id": position_id, "title": args.title}))
 
@@ -577,9 +592,9 @@ def cmd_update_status(args):
         # Find existing application note
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             find_query = f'''match
-                $p isa jobhunt-position, has id "{args.position}";
-                (note: $n, subject: $p) isa aboutness;
-                $n isa jobhunt-application-note;
+                $p isa jhunt-position, has id "{args.position}";
+                (note: $n, subject: $p) isa alh-aboutness;
+                $n isa jhunt-application-note;
             fetch {{ "id": $n.id }};'''
             existing = list(tx.query(find_query).resolve())
 
@@ -588,19 +603,19 @@ def cmd_update_status(args):
             old_note_id = existing[0].get("id", "")
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 tx.query(
-                    f'match $n isa note, has id "{old_note_id}"; delete $n;'
+                    f'match $n isa alh-note, has id "{old_note_id}"; delete $n;'
                 ).resolve()
                 tx.commit()
 
         # Create new application note with updated status
-        note_query = f'''insert $n isa jobhunt-application-note,
+        note_query = f'''insert $n isa jhunt-application-note,
             has id "{note_id}",
             has name "Application Status",
-            has application-status "{args.status}",
+            has jhunt-application-status "{args.status}",
             has created-at {timestamp}'''
 
         if args.date:
-            note_query += f", has applied-date {parse_date(args.date)}"
+            note_query += f", has jhunt-applied-date {parse_date(args.date)}"
 
         note_query += ";"
 
@@ -611,9 +626,9 @@ def cmd_update_status(args):
         # Link to position
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             about_query = f'''match
-                $n isa note, has id "{note_id}";
-                $p isa jobhunt-position, has id "{args.position}";
-            insert (note: $n, subject: $p) isa aboutness;'''
+                $n isa alh-note, has id "{note_id}";
+                $p isa jhunt-position, has id "{args.position}";
+            insert (note: $n, subject: $p) isa alh-aboutness;'''
             tx.query(about_query).resolve()
             tx.commit()
 
@@ -632,33 +647,33 @@ def cmd_update_status(args):
 def cmd_set_short_name(args):
     """Set short display name for a position."""
     with get_driver() as driver:
-        # Check if position exists and if it already has a short-name
+        # Check if position exists and if it already has a jhunt-short-name
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             check_query = f'''match
-                $p isa jobhunt-position, has id "{args.position}";
-            fetch {{ "short-name": $p.short-name }};'''
+                $p isa jhunt-position, has id "{args.position}";
+            fetch {{ "jhunt-short-name": $p.jhunt-short-name }};'''
             existing = list(tx.query(check_query).resolve())
 
         if not existing:
             print(json.dumps({"success": False, "error": "Position not found"}))
             return
 
-        has_existing = bool(existing[0].get("short-name"))
+        has_existing = bool(existing[0].get("jhunt-short-name"))
 
         if has_existing:
-            # Delete old short-name and add new one
+            # Delete old jhunt-short-name and add new one
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 delete_query = f'''match
-                    $p isa jobhunt-position, has id "{args.position}", has short-name $sn;
+                    $p isa jhunt-position, has id "{args.position}", has jhunt-short-name $sn;
                 delete $p has $sn;'''
                 tx.query(delete_query).resolve()
                 tx.commit()
 
-        # Add new short-name
+        # Add new jhunt-short-name
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             insert_query = f'''match
-                $p isa jobhunt-position, has id "{args.position}";
-            insert $p has short-name "{escape_string(args.name)}";'''
+                $p isa jhunt-position, has id "{args.position}";
+            insert $p has jhunt-short-name "{escape_string(args.name)}";'''
             tx.query(insert_query).resolve()
             tx.commit()
 
@@ -680,14 +695,14 @@ def cmd_add_note(args):
 
     # Map note type to TypeDB type
     type_map = {
-        "research": "jobhunt-research-note",
-        "interview": "jobhunt-interview-note",
-        "strategy": "jobhunt-strategy-note",
-        "skill-gap": "jobhunt-skill-gap-note",
-        "fit-analysis": "jobhunt-fit-analysis-note",
-        "interaction": "jobhunt-interaction-note",
-        "application": "jobhunt-application-note",
-        "opp-summary": "jobhunt-opp-summary-note",
+        "research": "jhunt-research-note",
+        "interview": "jhunt-interview-note",
+        "strategy": "jhunt-strategy-note",
+        "skill-gap": "jhunt-skill-gap-note",
+        "fit-analysis": "jhunt-fit-analysis-note",
+        "interaction": "jhunt-interaction-note",
+        "application": "jhunt-application-note",
+        "opp-summary": "jhunt-opp-summary-note",
         "general": "note",
     }
 
@@ -706,18 +721,18 @@ def cmd_add_note(args):
     # Type-specific attributes
     if args.type == "interaction":
         if args.interaction_type:
-            query += f', has interaction-type "{args.interaction_type}"'
+            query += f', has alh-interaction-type "{args.interaction_type}"'
         if args.interaction_date:
-            query += f", has interaction-date {parse_date(args.interaction_date)}"
+            query += f", has alh-interaction-date {parse_date(args.interaction_date)}"
 
     if args.type == "interview" and args.interview_date:
-        query += f", has interview-date {parse_date(args.interview_date)}"
+        query += f", has jhunt-interview-date {parse_date(args.interview_date)}"
 
     if args.type == "fit-analysis":
         if args.fit_score:
-            query += f", has fit-score {args.fit_score}"
+            query += f", has jhunt-fit-score {args.fit_score}"
         if args.fit_summary:
-            query += f', has fit-summary "{escape_string(args.fit_summary)}"'
+            query += f', has jhunt-fit-summary "{escape_string(args.fit_summary)}"'
 
     query += ";"
 
@@ -729,9 +744,9 @@ def cmd_add_note(args):
         # Link to subject
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             about_query = f'''match
-                $n isa note, has id "{note_id}";
-                $s isa identifiable-entity, has id "{args.about}";
-            insert (note: $n, subject: $s) isa aboutness;'''
+                $n isa alh-note, has id "{note_id}";
+                $s isa alh-identifiable-entity, has id "{args.about}";
+            insert (note: $n, subject: $s) isa alh-aboutness;'''
             tx.query(about_query).resolve()
             tx.commit()
 
@@ -740,21 +755,21 @@ def cmd_add_note(args):
             for tag_name in args.tags:
                 tag_id = generate_id("tag")
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-                    tag_check = f'match $t isa tag, has name "{tag_name}"; fetch {{ "id": $t.id }};'
+                    tag_check = f'match $t isa alh-tag, has name "{tag_name}"; fetch {{ "id": $t.id }};'
                     existing_tag = list(tx.query(tag_check).resolve())
 
                 if not existing_tag:
                     with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                         tx.query(
-                            f'insert $t isa tag, has id "{tag_id}", has name "{tag_name}";'
+                            f'insert $t isa alh-tag, has id "{tag_id}", has name "{tag_name}";'
                         ).resolve()
                         tx.commit()
 
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                     tx.query(f'''match
-                        $n isa note, has id "{note_id}";
-                        $t isa tag, has name "{tag_name}";
-                    insert (tagged-entity: $n, tag: $t) isa tagging;''').resolve()
+                        $n isa alh-note, has id "{note_id}";
+                        $t isa alh-tag, has name "{tag_name}";
+                    insert (tagged-entity: $n, tag: $t) isa alh-tagging;''').resolve()
                     tx.commit()
 
     print(json.dumps({"success": True, "note_id": note_id, "about": args.about, "type": args.type}))
@@ -776,9 +791,9 @@ def cmd_upsert_summary(args):
         existing_id = None
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             r = list(tx.query(f'''match
-                $s isa identifiable-entity, has id "{args.about}";
-                (note: $n, subject: $s) isa aboutness;
-                $n isa jobhunt-opp-summary-note, has id $nid;
+                $s isa alh-identifiable-entity, has id "{args.about}";
+                (note: $n, subject: $s) isa alh-aboutness;
+                $n isa jhunt-opp-summary-note, has id $nid;
             fetch {{ "nid": $nid }};''').resolve())
             if r:
                 existing_id = r[0]["nid"]
@@ -787,21 +802,21 @@ def cmd_upsert_summary(args):
             # Delete old content, insert new
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 tx.query(f'''match
-                    $n isa jobhunt-opp-summary-note, has id "{existing_id}", has content $c;
+                    $n isa jhunt-opp-summary-note, has id "{existing_id}", has content $c;
                 delete has $c of $n;''').resolve()
                 tx.commit()
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-                tx.query(f'''match $n isa jobhunt-opp-summary-note, has id "{existing_id}";
+                tx.query(f'''match $n isa jhunt-opp-summary-note, has id "{existing_id}";
                 insert $n has content "{escape_string(content)}";''').resolve()
                 tx.commit()
             # Update created-at to track last update
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 tx.query(f'''match
-                    $n isa jobhunt-opp-summary-note, has id "{existing_id}", has created-at $t;
+                    $n isa jhunt-opp-summary-note, has id "{existing_id}", has created-at $t;
                 delete has $t of $n;''').resolve()
                 tx.commit()
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-                tx.query(f'''match $n isa jobhunt-opp-summary-note, has id "{existing_id}";
+                tx.query(f'''match $n isa jhunt-opp-summary-note, has id "{existing_id}";
                 insert $n has created-at {timestamp};''').resolve()
                 tx.commit()
             note_id = existing_id
@@ -810,7 +825,7 @@ def cmd_upsert_summary(args):
             # Create new brief
             note_id = generate_id("oppsummary")
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-                tx.query(f'''insert $n isa jobhunt-opp-summary-note,
+                tx.query(f'''insert $n isa jhunt-opp-summary-note,
                     has id "{note_id}",
                     has name "brief",
                     has content "{escape_string(content)}",
@@ -819,9 +834,9 @@ def cmd_upsert_summary(args):
             # Link to subject
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 tx.query(f'''match
-                    $n isa jobhunt-opp-summary-note, has id "{note_id}";
-                    $s isa identifiable-entity, has id "{args.about}";
-                insert (note: $n, subject: $s) isa aboutness;''').resolve()
+                    $n isa jhunt-opp-summary-note, has id "{note_id}";
+                    $s isa alh-identifiable-entity, has id "{args.about}";
+                insert (note: $n, subject: $s) isa alh-aboutness;''').resolve()
                 tx.commit()
             action = "created"
 
@@ -836,24 +851,24 @@ def cmd_regenerate_summary(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             # Determine opportunity type
             opp_meta = None
-            for otype in ["jobhunt-position", "jobhunt-engagement", "jobhunt-venture", "jobhunt-lead"]:
+            for otype in ["jhunt-position", "jhunt-engagement", "jhunt-venture", "jhunt-lead"]:
                 r = list(tx.query(f'''match $o isa {otype}, has id "{opp_id}", has name $n;
                     fetch {{ "name": $n }};''').resolve())
                 if r:
-                    opp_meta = {"id": opp_id, "type": otype.replace("jobhunt-", ""), "name": r[0]["name"]}
+                    opp_meta = {"id": opp_id, "type": otype.replace("jhunt-", ""), "name": r[0]["name"]}
                     break
 
             if not opp_meta:
                 print(json.dumps({"success": False, "error": f"Opportunity {opp_id} not found"}))
                 return
 
-            otype_full = f"jobhunt-{opp_meta['type']}"
+            otype_full = f"jhunt-{opp_meta['type']}"
 
             # Fetch optional attributes
-            for attr, key in [("short-name", "short_name"), ("priority-level", "priority"),
-                              ("created-at", "created_at"), ("job-url", "job_url"),
-                              ("salary-range", "salary"), ("location", "location"),
-                              ("remote-policy", "remote_policy")]:
+            for attr, key in [("jhunt-short-name", "short_name"), ("jhunt-priority-level", "priority"),
+                              ("created-at", "created_at"), ("jhunt-job-url", "job_url"),
+                              ("jhunt-salary-range", "salary"), ("location", "location"),
+                              ("jhunt-remote-policy", "remote_policy")]:
                 try:
                     r = list(tx.query(f'match $o isa {otype_full}, has id "{opp_id}", has {attr} $v; fetch {{ "v": $v }};').resolve())
                     if r:
@@ -865,8 +880,8 @@ def cmd_regenerate_summary(args):
             if opp_meta["type"] == "position":
                 try:
                     s = list(tx.query(f'''match $o isa {otype_full}, has id "{opp_id}";
-                        (note: $n, subject: $o) isa aboutness;
-                        $n isa jobhunt-application-note, has application-status $s;
+                        (note: $n, subject: $o) isa alh-aboutness;
+                        $n isa jhunt-application-note, has jhunt-application-status $s;
                     fetch {{ "s": $s }};''').resolve())
                     if s:
                         opp_meta["status"] = s[0]["s"]
@@ -874,7 +889,7 @@ def cmd_regenerate_summary(args):
                     pass
             else:
                 try:
-                    s = list(tx.query(f'match $o isa {otype_full}, has id "{opp_id}", has opportunity-status $s; fetch {{ "s": $s }};').resolve())
+                    s = list(tx.query(f'match $o isa {otype_full}, has id "{opp_id}", has jhunt-opportunity-status $s; fetch {{ "s": $s }};').resolve())
                     if s:
                         opp_meta["status"] = s[0]["s"]
                 except:
@@ -882,7 +897,7 @@ def cmd_regenerate_summary(args):
 
             # Company
             try:
-                for rel in ["position-at-company", "opportunity-at-organization"]:
+                for rel in ["jhunt-position-at-company", "jhunt-opportunity-at-organization"]:
                     role = "employer" if "position" in rel else "organization"
                     co = list(tx.query(f'''match $o isa {otype_full}, has id "{opp_id}";
                         ({rel.split("-")[0]}: $o, {role}: $c) isa {rel};
@@ -896,21 +911,21 @@ def cmd_regenerate_summary(args):
             # All notes (grouped by type)
             notes = {}
             note_types = [
-                ("jobhunt-research-note", "research"),
-                ("jobhunt-fit-analysis-note", "fit-analysis"),
-                ("jobhunt-strategy-note", "strategy"),
-                ("jobhunt-skill-gap-note", "skill-gap"),
-                ("jobhunt-application-note", "application"),
-                ("jobhunt-interview-note", "interview"),
-                ("jobhunt-interaction-note", "interaction"),
-                ("jobhunt-opp-summary-note", "current-summary"),
+                ("jhunt-research-note", "research"),
+                ("jhunt-fit-analysis-note", "fit-analysis"),
+                ("jhunt-strategy-note", "strategy"),
+                ("jhunt-skill-gap-note", "skill-gap"),
+                ("jhunt-application-note", "application"),
+                ("jhunt-interview-note", "interview"),
+                ("jhunt-interaction-note", "interaction"),
+                ("jhunt-opp-summary-note", "current-summary"),
                 ("note", "general"),
             ]
             for ntype, label in note_types:
                 try:
                     results = list(tx.query(f'''match
                         $o isa {otype_full}, has id "{opp_id}";
-                        (note: $n, subject: $o) isa aboutness;
+                        (note: $n, subject: $o) isa alh-aboutness;
                         $n isa {ntype}, has content $c;
                     fetch {{ "content": $c }};''').resolve())
                     if results:
@@ -923,8 +938,8 @@ def cmd_regenerate_summary(args):
             try:
                 contact_r = list(tx.query(f'''match
                     $o isa {otype_full}, has id "{opp_id}";
-                    (note: $n, subject: $o) isa aboutness;
-                    $n isa jobhunt-interaction-note, has content $c;
+                    (note: $n, subject: $o) isa alh-aboutness;
+                    $n isa jhunt-interaction-note, has content $c;
                 fetch {{ "content": $c }};''').resolve())
                 # Also try direct interaction links
             except:
@@ -944,17 +959,17 @@ def cmd_add_resource(args):
     resource_id = args.id or generate_id("resource")
     timestamp = get_timestamp()
 
-    query = f'''insert $r isa jobhunt-learning-resource,
+    query = f'''insert $r isa jhunt-learning-resource,
         has id "{resource_id}",
         has name "{escape_string(args.name)}",
-        has resource-type "{args.type}",
-        has completion-status "not-started",
+        has jhunt-resource-type "{args.type}",
+        has jhunt-completion-status "not-started",
         has created-at {timestamp}'''
 
     if args.url:
-        query += f', has resource-url "{escape_string(args.url)}"'
+        query += f', has jhunt-resource-url "{escape_string(args.url)}"'
     if args.hours:
-        query += f", has estimated-hours {args.hours}"
+        query += f", has jhunt-estimated-hours {args.hours}"
     if args.description:
         query += f', has description "{escape_string(args.description)}"'
 
@@ -972,21 +987,21 @@ def cmd_add_resource(args):
                 tag_name = f"skill:{skill}"
 
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-                    tag_check = f'match $t isa tag, has name "{tag_name}"; fetch {{ "id": $t.id }};'
+                    tag_check = f'match $t isa alh-tag, has name "{tag_name}"; fetch {{ "id": $t.id }};'
                     existing_tag = list(tx.query(tag_check).resolve())
 
                 if not existing_tag:
                     with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                         tx.query(
-                            f'insert $t isa tag, has id "{tag_id}", has name "{tag_name}";'
+                            f'insert $t isa alh-tag, has id "{tag_id}", has name "{tag_name}";'
                         ).resolve()
                         tx.commit()
 
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                     tx.query(f'''match
-                        $r isa jobhunt-learning-resource, has id "{resource_id}";
-                        $t isa tag, has name "{tag_name}";
-                    insert (tagged-entity: $r, tag: $t) isa tagging;''').resolve()
+                        $r isa jhunt-learning-resource, has id "{resource_id}";
+                        $t isa alh-tag, has name "{tag_name}";
+                    insert (tagged-entity: $r, tag: $t) isa alh-tagging;''').resolve()
                     tx.commit()
 
     print(
@@ -1001,9 +1016,9 @@ def cmd_link_resource(args):
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             link_query = f'''match
-                $r isa jobhunt-learning-resource, has id "{args.resource}";
-                $req isa jobhunt-requirement, has id "{args.requirement}";
-            insert (resource: $r, requirement: $req) isa addresses-requirement;'''
+                $r isa jhunt-learning-resource, has id "{args.resource}";
+                $req isa jhunt-requirement, has id "{args.requirement}";
+            insert (resource: $r, requirement: $req) isa jhunt-addresses-requirement;'''
             tx.query(link_query).resolve()
             tx.commit()
 
@@ -1013,7 +1028,7 @@ def cmd_link_resource(args):
 def cmd_link_collection(args):
     """Link a paper collection to skill requirement(s).
 
-    Bridges scilit collections to jobhunt skill gaps via addresses-requirement.
+    Bridges scilit collections to jobhunt skill gaps via jhunt-addresses-requirement.
     Use --requirement for a specific requirement, or --skill to link to all
     matching requirements across positions.
     """
@@ -1022,9 +1037,9 @@ def cmd_link_collection(args):
             # Link to specific requirement
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 link_query = f'''match
-                    $c isa collection, has id "{args.collection}";
-                    $req isa jobhunt-requirement, has id "{args.requirement}";
-                insert (resource: $c, requirement: $req) isa addresses-requirement;'''
+                    $c isa alh-collection, has id "{args.collection}";
+                    $req isa jhunt-requirement, has id "{args.requirement}";
+                insert (resource: $c, requirement: $req) isa jhunt-addresses-requirement;'''
                 tx.query(link_query).resolve()
                 tx.commit()
             print(json.dumps({
@@ -1037,14 +1052,14 @@ def cmd_link_collection(args):
             # Link to all requirements matching skill name
             with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
                 find_query = f'''match
-                    $req isa jobhunt-requirement, has skill-name "{escape_string(args.skill)}";
+                    $req isa jhunt-requirement, has jhunt-skill-name "{escape_string(args.skill)}";
                 fetch {{ "id": $req.id }};'''
                 reqs = list(tx.query(find_query).resolve())
 
             if not reqs:
                 print(json.dumps({
                     "success": False,
-                    "error": f"No requirements found with skill-name '{args.skill}'",
+                    "error": f"No requirements found with jhunt-skill-name '{args.skill}'",
                 }))
                 return
 
@@ -1053,9 +1068,9 @@ def cmd_link_collection(args):
                 req_id = r.get("id", "")
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                     link_query = f'''match
-                        $c isa collection, has id "{args.collection}";
-                        $req isa jobhunt-requirement, has id "{req_id}";
-                    insert (resource: $c, requirement: $req) isa addresses-requirement;'''
+                        $c isa alh-collection, has id "{args.collection}";
+                        $req isa jhunt-requirement, has id "{req_id}";
+                    insert (resource: $c, requirement: $req) isa jhunt-addresses-requirement;'''
                     tx.query(link_query).resolve()
                     tx.commit()
                 linked.append(req_id)
@@ -1083,7 +1098,7 @@ def cmd_link_background(args):
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             cols = list(tx.query(f'''
-                match $c isa collection, has id "{collection_id}";
+                match $c isa alh-collection, has id "{collection_id}";
                 fetch {{ "id": $c.id, "name": $c.name }};
             ''').resolve())
             if not cols:
@@ -1091,7 +1106,7 @@ def cmd_link_background(args):
                 return
 
             opps = list(tx.query(f'''
-                match $o isa jobhunt-opportunity, has id "{opportunity_id}";
+                match $o isa jhunt-opportunity, has id "{opportunity_id}";
                 fetch {{ "id": $o.id, "name": $o.name }};
             ''').resolve())
             if not opps:
@@ -1104,9 +1119,9 @@ def cmd_link_background(args):
 
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(f'''
-                match $o isa jobhunt-opportunity, has id "{opportunity_id}";
-                      $c isa collection, has id "{collection_id}";
-                insert (opportunity: $o, reading-material: $c) isa jobhunt-background-reading,
+                match $o isa jhunt-opportunity, has id "{opportunity_id}";
+                      $c isa alh-collection, has id "{collection_id}";
+                insert (opportunity: $o, reading-material: $c) isa jhunt-background-reading,
                     has created-at {ts}{desc_clause}{prov_clause};
             ''').resolve()
             tx.commit()
@@ -1127,9 +1142,9 @@ def cmd_list_background(args):
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             results = list(tx.query(f'''
-                match $o isa jobhunt-opportunity, has id "{opportunity_id}";
-                      $c isa collection;
-                      (opportunity: $o, reading-material: $c) isa jobhunt-background-reading;
+                match $o isa jhunt-opportunity, has id "{opportunity_id}";
+                      $c isa alh-collection;
+                      (opportunity: $o, reading-material: $c) isa jhunt-background-reading;
                 fetch {{
                     "collection-id": $c.id,
                     "collection-name": $c.name
@@ -1145,19 +1160,19 @@ def cmd_list_background(args):
 
 
 def cmd_link_paper(args):
-    """Link a learning resource to a paper via citation-reference.
+    """Link a learning resource to a paper via alh-citation-reference.
 
-    Creates a citation-reference relation where the learning resource
-    cites the paper. Both types inherit from domain-thing so they
+    Creates a alh-citation-reference relation where the learning resource
+    cites the paper. Both types inherit from alh-domain-thing so they
     can already play citing-item/cited-item roles.
     """
     timestamp = get_timestamp()
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             link_query = f'''match
-                $res isa jobhunt-learning-resource, has id "{args.resource}";
+                $res isa jhunt-learning-resource, has id "{args.resource}";
                 $paper isa scilit-paper, has id "{args.paper}";
-            insert (citing-item: $res, cited-item: $paper) isa citation-reference,
+            insert (citing-item: $res, cited-item: $paper) isa alh-citation-reference,
                 has created-at {timestamp};'''
             tx.query(link_query).resolve()
             tx.commit()
@@ -1173,7 +1188,7 @@ def cmd_delete_position(args):
     """Delete a position and all its related data."""
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            check = list(tx.query(f'''match $p isa jobhunt-position, has id "{args.id}";
+            check = list(tx.query(f'''match $p isa jhunt-position, has id "{args.id}";
             fetch {{ "name": $p.name }};''').resolve())
         if not check:
             print(json.dumps({"success": False, "error": "Position not found"}))
@@ -1181,7 +1196,7 @@ def cmd_delete_position(args):
 
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             # Delete the position entity (TypeDB cascades owned attributes)
-            tx.query(f'''match $p isa jobhunt-position, has id "{args.id}";
+            tx.query(f'''match $p isa jhunt-position, has id "{args.id}";
             delete $p;''').resolve()
             tx.commit()
 
@@ -1194,13 +1209,23 @@ def cmd_delete_position(args):
 
 
 def _link_opportunity_to_company(driver, opportunity_id, company_id):
-    """Link an opportunity to a company via opportunity-at-organization."""
+    """Link an opportunity to a company via jhunt-opportunity-at-organization."""
     with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
         rel_query = f'''match
-            $o isa jobhunt-opportunity, has id "{opportunity_id}";
-            $c isa jobhunt-company, has id "{company_id}";
-        insert (opportunity: $o, organization: $c) isa opportunity-at-organization;'''
+            $o isa jhunt-opportunity, has id "{opportunity_id}";
+            $c isa jhunt-company, has id "{company_id}";
+        insert (opportunity: $o, organization: $c) isa jhunt-opportunity-at-organization;'''
         tx.query(rel_query).resolve()
+        tx.commit()
+
+
+def _link_opportunity_to_seeker(driver, opportunity_id):
+    """Link an opportunity to the active job-seeker role via jhunt-seeker-pipeline."""
+    with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+        tx.query(f'''match
+            $role isa jhunt-job-seeker-role, has alh-role-status "active";
+            $opp isa jhunt-opportunity, has id "{escape_string(opportunity_id)}";
+        insert (seeker: $role, opportunity: $opp) isa jhunt-seeker-pipeline;''').resolve()
         tx.commit()
 
 
@@ -1209,21 +1234,21 @@ def cmd_add_engagement(args):
     engagement_id = args.id or generate_id("engagement")
     timestamp = get_timestamp()
 
-    query = f'''insert $e isa jobhunt-engagement,
+    query = f'''insert $e isa jhunt-engagement,
         has id "{engagement_id}",
         has name "{escape_string(args.name)}",
         has created-at {timestamp}'''
 
     if args.type:
-        query += f', has engagement-type "{args.type}"'
+        query += f', has jhunt-engagement-type "{args.type}"'
     if args.rate:
-        query += f', has rate-info "{escape_string(args.rate)}"'
+        query += f', has jhunt-rate-info "{escape_string(args.rate)}"'
     if args.status:
-        query += f', has opportunity-status "{args.status}"'
+        query += f', has jhunt-opportunity-status "{args.status}"'
     if args.priority:
-        query += f', has priority-level "{args.priority}"'
-    if args.deadline:
-        query += f', has deadline {parse_date(args.deadline)}'
+        query += f', has jhunt-priority-level "{args.priority}"'
+    if args.jhunt-deadline:
+        query += f', has jhunt-deadline {parse_date(args.jhunt-deadline)}'
     if args.description:
         query += f', has description "{escape_string(args.description)}"'
 
@@ -1237,6 +1262,11 @@ def cmd_add_engagement(args):
         if args.company_id:
             _link_opportunity_to_company(driver, engagement_id, args.company_id)
 
+        try:
+            _link_opportunity_to_seeker(driver, engagement_id)
+        except Exception:
+            pass
+
     print(json.dumps({"success": True, "engagement_id": engagement_id, "name": args.name}))
 
 
@@ -1245,21 +1275,21 @@ def cmd_add_venture(args):
     venture_id = args.id or generate_id("venture")
     timestamp = get_timestamp()
 
-    query = f'''insert $v isa jobhunt-venture,
+    query = f'''insert $v isa jhunt-venture,
         has id "{venture_id}",
         has name "{escape_string(args.name)}",
         has created-at {timestamp}'''
 
     if args.stage:
-        query += f', has venture-stage "{args.stage}"'
+        query += f', has jhunt-venture-stage "{args.stage}"'
     if args.equity_type:
-        query += f', has equity-type "{args.equity_type}"'
+        query += f', has jhunt-equity-type "{args.equity_type}"'
     if args.status:
-        query += f', has opportunity-status "{args.status}"'
+        query += f', has jhunt-opportunity-status "{args.status}"'
     if args.priority:
-        query += f', has priority-level "{args.priority}"'
-    if args.deadline:
-        query += f', has deadline {parse_date(args.deadline)}'
+        query += f', has jhunt-priority-level "{args.priority}"'
+    if args.jhunt-deadline:
+        query += f', has jhunt-deadline {parse_date(args.jhunt-deadline)}'
     if args.description:
         query += f', has description "{escape_string(args.description)}"'
 
@@ -1273,6 +1303,11 @@ def cmd_add_venture(args):
         if args.company_id:
             _link_opportunity_to_company(driver, venture_id, args.company_id)
 
+        try:
+            _link_opportunity_to_seeker(driver, venture_id)
+        except Exception:
+            pass
+
     print(json.dumps({"success": True, "venture_id": venture_id, "name": args.name}))
 
 
@@ -1281,15 +1316,15 @@ def cmd_add_lead(args):
     lead_id = args.id or generate_id("lead")
     timestamp = get_timestamp()
 
-    query = f'''insert $l isa jobhunt-lead,
+    query = f'''insert $l isa jhunt-lead,
         has id "{lead_id}",
         has name "{escape_string(args.name)}",
         has created-at {timestamp}'''
 
     if args.status:
-        query += f', has opportunity-status "{args.status}"'
+        query += f', has jhunt-opportunity-status "{args.status}"'
     if args.priority:
-        query += f', has priority-level "{args.priority}"'
+        query += f', has jhunt-priority-level "{args.priority}"'
     if args.description:
         query += f', has description "{escape_string(args.description)}"'
 
@@ -1300,6 +1335,11 @@ def cmd_add_lead(args):
             tx.query(query).resolve()
             tx.commit()
 
+        try:
+            _link_opportunity_to_seeker(driver, lead_id)
+        except Exception:
+            pass
+
     print(json.dumps({"success": True, "lead_id": lead_id, "name": args.name}))
 
 
@@ -1307,11 +1347,11 @@ def cmd_update_opportunity(args):
     """Update status, stage, or priority of any opportunity."""
     updates = []
     if args.status:
-        updates.append(("opportunity-status", args.status))
+        updates.append(("jhunt-opportunity-status", args.status))
     if args.stage:
-        updates.append(("venture-stage", args.stage))
+        updates.append(("jhunt-venture-stage", args.stage))
     if args.priority:
-        updates.append(("priority-level", args.priority))
+        updates.append(("jhunt-priority-level", args.priority))
 
     if not updates:
         print(json.dumps({"success": False, "error": "No updates specified"}))
@@ -1322,20 +1362,20 @@ def cmd_update_opportunity(args):
             # Check if attribute already exists
             with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
                 check = list(tx.query(f'''match
-                    $o isa jobhunt-opportunity, has id "{args.id}", has {attr} $v;
+                    $o isa jhunt-opportunity, has id "{args.id}", has {attr} $v;
                 fetch {{ "v": $v.{attr} }};''').resolve())
 
             if check:
                 # Delete old value then insert new
                 with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                     tx.query(f'''match
-                        $o isa jobhunt-opportunity, has id "{args.id}", has {attr} $v;
+                        $o isa jhunt-opportunity, has id "{args.id}", has {attr} $v;
                     delete has $v of $o;''').resolve()
                     tx.commit()
 
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 tx.query(f'''match
-                    $o isa jobhunt-opportunity, has id "{args.id}";
+                    $o isa jhunt-opportunity, has id "{args.id}";
                 insert $o has {attr} "{value}";''').resolve()
                 tx.commit()
 
@@ -1349,15 +1389,15 @@ def cmd_show_opportunity(args):
             # Try each subtype in order
             opp = None
             opp_type = None
-            for otype in ["jobhunt-position", "jobhunt-engagement", "jobhunt-venture", "jobhunt-lead"]:
+            for otype in ["jhunt-position", "jhunt-engagement", "jhunt-venture", "jhunt-lead"]:
                 q = f'''match $o isa {otype}, has id "{args.id}";
                 fetch {{
                     "id": $o.id,
                     "name": $o.name,
                     "description": $o.description,
-                    "opportunity-status": $o.opportunity-status,
-                    "priority-level": $o.priority-level,
-                    "deadline": $o.deadline
+                    "jhunt-opportunity-status": $o.jhunt-opportunity-status,
+                    "jhunt-priority-level": $o.jhunt-priority-level,
+                    "deadline": $o.jhunt-deadline
                 }};'''
                 results = list(tx.query(q).resolve())
                 if results:
@@ -1370,76 +1410,91 @@ def cmd_show_opportunity(args):
                 return
 
             # Type-specific attributes
-            if opp_type == "jobhunt-position":
-                extra_q = f'''match $o isa jobhunt-position, has id "{args.id}";
+            if opp_type == "jhunt-position":
+                extra_q = f'''match $o isa jhunt-position, has id "{args.id}";
                 fetch {{
-                    "job-url": $o.job-url,
-                    "short-name": $o.short-name,
-                    "salary-range": $o.salary-range,
-                    "location": $o.location,
-                    "remote-policy": $o.remote-policy
+                    "jhunt-job-url": $o.jhunt-job-url,
+                    "jhunt-short-name": $o.jhunt-short-name,
+                    "jhunt-salary-range": $o.jhunt-salary-range,
+                    "location": $o.alh-location,
+                    "jhunt-remote-policy": $o.jhunt-remote-policy
                 }};'''
                 extras = list(tx.query(extra_q).resolve())
                 if extras:
                     opp.update(extras[0])
 
-            elif opp_type == "jobhunt-engagement":
-                extra_q = f'''match $o isa jobhunt-engagement, has id "{args.id}";
+            elif opp_type == "jhunt-engagement":
+                extra_q = f'''match $o isa jhunt-engagement, has id "{args.id}";
                 fetch {{
-                    "short-name": $o.short-name,
-                    "engagement-type": $o.engagement-type,
-                    "rate-info": $o.rate-info
+                    "jhunt-short-name": $o.jhunt-short-name,
+                    "jhunt-engagement-type": $o.jhunt-engagement-type,
+                    "jhunt-rate-info": $o.jhunt-rate-info
                 }};'''
                 extras = list(tx.query(extra_q).resolve())
                 if extras:
                     opp.update(extras[0])
 
-            elif opp_type == "jobhunt-venture":
-                extra_q = f'''match $o isa jobhunt-venture, has id "{args.id}";
+            elif opp_type == "jhunt-venture":
+                extra_q = f'''match $o isa jhunt-venture, has id "{args.id}";
                 fetch {{
-                    "short-name": $o.short-name,
-                    "venture-stage": $o.venture-stage,
-                    "equity-type": $o.equity-type
+                    "jhunt-short-name": $o.jhunt-short-name,
+                    "jhunt-venture-stage": $o.jhunt-venture-stage,
+                    "jhunt-equity-type": $o.jhunt-equity-type
                 }};'''
                 extras = list(tx.query(extra_q).resolve())
                 if extras:
                     opp.update(extras[0])
 
-            elif opp_type == "jobhunt-lead":
-                extra_q = f'''match $o isa jobhunt-lead, has id "{args.id}";
-                fetch {{ "short-name": $o.short-name }};'''
+            elif opp_type == "jhunt-lead":
+                extra_q = f'''match $o isa jhunt-lead, has id "{args.id}";
+                fetch {{ "jhunt-short-name": $o.jhunt-short-name }};'''
                 extras = list(tx.query(extra_q).resolve())
                 if extras:
                     opp.update(extras[0])
 
-            # Get linked company via opportunity-at-organization
-            company_q = f'''match
-                $o isa jobhunt-opportunity, has id "{args.id}";
-                (opportunity: $o, organization: $c) isa opportunity-at-organization;
-            fetch {{ "id": $c.id, "name": $c.name }};'''
-            company_results = list(tx.query(company_q).resolve())
+            # Get linked company via jhunt-opportunity-at-organization
+            company_results = []
+            # Try opportunity-at-organization first
+            try:
+                company_q = f'''match
+                    $o isa jhunt-opportunity, has id "{args.id}";
+                    (opportunity: $o, organization: $c) isa jhunt-opportunity-at-organization;
+                fetch {{ "id": $c.id, "name": $c.name }};'''
+                company_results = list(tx.query(company_q).resolve())
+            except Exception:
+                pass
+            # Fall back to position-at-company
+            if not company_results:
+                try:
+                    company_q = f'''match
+                        $p isa jhunt-position, has id "{args.id}";
+                        (position: $p, employer: $c) isa jhunt-position-at-company;
+                    fetch {{ "id": $c.id, "name": $c.name }};'''
+                    company_results = list(tx.query(company_q).resolve())
+                except Exception:
+                    pass
 
             # Get notes
             notes_q = f'''match
-                $o isa jobhunt-opportunity, has id "{args.id}";
-                (note: $n, subject: $o) isa aboutness;
+                $o isa jhunt-opportunity, has id "{args.id}";
+                (note: $n, subject: $o) isa alh-aboutness;
             fetch {{ "id": $n.id, "name": $n.name, "content": $n.content }};'''
             notes_results = list(tx.query(notes_q).resolve())
 
             # Get background reading collections
             bg_cols = list(tx.query(f'''
-                match $o isa jobhunt-opportunity, has id "{args.id}";
-                      $c isa collection;
-                      (opportunity: $o, reading-material: $c) isa jobhunt-background-reading;
+                match $o isa jhunt-opportunity, has id "{args.id}";
+                      $c isa alh-collection;
+                      (opportunity: $o, reading-material: $c) isa jhunt-background-reading;
                 fetch {{ "collection-id": $c.id, "collection-name": $c.name }};
             ''').resolve())
 
             # Fetch descriptions — anon relation + has avoids $var naming issues
             bg_descs = {r["collection-id"]: r["description"]
                         for r in tx.query(f'''
-                match $o isa jobhunt-opportunity, has id "{args.id}";
-                      $c isa collection, has id $cid;
-                      (opportunity: $o, reading-material: $c) isa jobhunt-background-reading,
+                match $o isa jhunt-opportunity, has id "{args.id}";
+                      $c isa alh-collection, has id $cid;
+                      (opportunity: $o, reading-material: $c) isa jhunt-background-reading,
                           has description $desc;
                 fetch {{ "collection-id": $cid, "description": $desc }};
             ''').resolve()}
@@ -1467,31 +1522,36 @@ def cmd_list_opportunities(args):
     opp_type = args.type or "all"
 
     type_map = {
-        "position": ["jobhunt-position"],
-        "engagement": ["jobhunt-engagement"],
-        "venture": ["jobhunt-venture"],
-        "lead": ["jobhunt-lead"],
-        "all": ["jobhunt-position", "jobhunt-engagement", "jobhunt-venture", "jobhunt-lead"],
+        "position": ["jhunt-position"],
+        "engagement": ["jhunt-engagement"],
+        "venture": ["jhunt-venture"],
+        "lead": ["jhunt-lead"],
+        "all": ["jhunt-position", "jhunt-engagement", "jhunt-venture", "jhunt-lead"],
     }
-    types_to_query = type_map.get(opp_type, ["jobhunt-position"])
+    types_to_query = type_map.get(opp_type, ["jhunt-position"])
 
     results = []
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             for otype in types_to_query:
                 match_clause = f"match $o isa {otype};"
+                if hasattr(args, 'person') and args.person:
+                    match_clause += f'''
+                    (seeker: $seeker, opportunity: $o) isa jhunt-seeker-pipeline;
+                    (bearer: $person, borne-role: $seeker) isa alh-role-bearing;
+                    $person has id "{escape_string(args.person)}";'''
                 if args.status:
-                    match_clause += f'\n$o has opportunity-status "{args.status}";'
+                    match_clause += f'\n$o has jhunt-opportunity-status "{args.status}";'
                 if args.priority:
-                    match_clause += f'\n$o has priority-level "{args.priority}";'
+                    match_clause += f'\n$o has jhunt-priority-level "{args.priority}";'
 
                 q = match_clause + """
                 fetch {
                     "id": $o.id,
                     "name": $o.name,
-                    "short-name": $o.short-name,
-                    "opportunity-status": $o.opportunity-status,
-                    "priority-level": $o.priority-level
+                    "jhunt-short-name": $o.jhunt-short-name,
+                    "jhunt-opportunity-status": $o.jhunt-opportunity-status,
+                    "jhunt-priority-level": $o.jhunt-priority-level
                 };"""
                 rows = list(tx.query(q).resolve())
                 for r in rows:
@@ -1504,8 +1564,8 @@ def cmd_list_opportunities(args):
                 if not oid:
                     continue
                 company_q = f'''match
-                    $o isa jobhunt-opportunity, has id "{oid}";
-                    (opportunity: $o, organization: $c) isa opportunity-at-organization;
+                    $o isa jhunt-opportunity, has id "{oid}";
+                    (opportunity: $o, organization: $c) isa jhunt-opportunity-at-organization;
                 fetch {{ "name": $c.name }};'''
                 try:
                     company_results = list(tx.query(company_q).resolve())
@@ -1517,11 +1577,11 @@ def cmd_list_opportunities(args):
     for r in results:
         opportunities.append({
             "id": r.get("id", ""),
-            "type": r.get("_type", "").replace("jobhunt-", ""),
+            "type": r.get("_type", "").replace("jhunt-", ""),
             "name": r.get("name", ""),
-            "short_name": r.get("short-name", ""),
-            "status": r.get("opportunity-status", ""),
-            "priority": r.get("priority-level", ""),
+            "short_name": r.get("jhunt-short-name", ""),
+            "status": r.get("jhunt-opportunity-status", ""),
+            "priority": r.get("jhunt-priority-level", ""),
             "company": r.get("company", ""),
         })
 
@@ -1538,29 +1598,35 @@ def cmd_list_pipeline(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             # Build query - fetch positions with their application status
             match_clause = """match
-                    $p isa jobhunt-position;
-                    (note: $n, subject: $p) isa aboutness;
-                    $n isa jobhunt-application-note, has application-status $status;"""
+                    $p isa jhunt-position;
+                    (note: $n, subject: $p) isa alh-aboutness;
+                    $n isa jhunt-application-note, has jhunt-application-status $status;"""
+
+            if hasattr(args, 'person') and args.person:
+                match_clause += f'''
+                    (seeker: $seeker, opportunity: $p) isa jhunt-seeker-pipeline;
+                    (bearer: $person, borne-role: $seeker) isa alh-role-bearing;
+                    $person has id "{escape_string(args.person)}";'''
 
             if args.status:
                 match_clause = match_clause.replace(
-                    "has application-status $status", f'has application-status "{args.status}"'
+                    "has jhunt-application-status $status", f'has jhunt-application-status "{args.status}"'
                 )
 
             if args.priority:
-                match_clause += f'\n                    $p has priority-level "{args.priority}";'
+                match_clause += f'\n                    $p has jhunt-priority-level "{args.priority}";'
 
             query = match_clause + """
                 fetch {
                     "id": $p.id,
                     "name": $p.name,
-                    "short-name": $p.short-name,
-                    "job-url": $p.job-url,
-                    "location": $p.location,
-                    "remote-policy": $p.remote-policy,
-                    "salary-range": $p.salary-range,
-                    "priority-level": $p.priority-level,
-                    "status": $n.application-status
+                    "jhunt-short-name": $p.jhunt-short-name,
+                    "jhunt-job-url": $p.jhunt-job-url,
+                    "location": $p.alh-location,
+                    "jhunt-remote-policy": $p.jhunt-remote-policy,
+                    "jhunt-salary-range": $p.jhunt-salary-range,
+                    "jhunt-priority-level": $p.jhunt-priority-level,
+                    "status": $n.jhunt-application-status
                 };"""
 
             results = list(tx.query(query).resolve())
@@ -1570,8 +1636,8 @@ def cmd_list_pipeline(args):
                 pos_id = r.get("id")
                 if pos_id:
                     company_query = f'''match
-                        $p isa jobhunt-position, has id "{pos_id}";
-                        (position: $p, employer: $c) isa position-at-company;
+                        $p isa jhunt-position, has id "{pos_id}";
+                        (position: $p, employer: $c) isa jhunt-position-at-company;
                     fetch {{ "name": $c.name }};'''
                     try:
                         company_results = list(tx.query(company_query).resolve())
@@ -1583,9 +1649,9 @@ def cmd_list_pipeline(args):
             # If filtering by tag, we need a separate query
             if args.tag:
                 tag_query = f'''match
-                    $p isa jobhunt-position;
-                    $t isa tag, has name "{args.tag}";
-                    (tagged-entity: $p, tag: $t) isa tagging;
+                    $p isa jhunt-position;
+                    $t isa alh-tag, has name "{args.tag}";
+                    (tagged-entity: $p, tag: $t) isa alh-tagging;
                 fetch {{ "id": $p.id }};'''
                 tagged = list(tx.query(tag_query).resolve())
                 tagged_ids = {r.get("id") for r in tagged}
@@ -1597,12 +1663,12 @@ def cmd_list_pipeline(args):
         pos = {
             "id": r.get("id"),
             "title": r.get("name"),
-            "short_name": r.get("short-name"),
-            "url": r.get("job-url"),
+            "short_name": r.get("jhunt-short-name"),
+            "url": r.get("jhunt-job-url"),
             "location": r.get("location"),
-            "remote_policy": r.get("remote-policy"),
-            "salary": r.get("salary-range"),
-            "priority": r.get("priority-level"),
+            "remote_policy": r.get("jhunt-remote-policy"),
+            "salary": r.get("jhunt-salary-range"),
+            "priority": r.get("jhunt-priority-level"),
             "status": r.get("status"),
             "company": r.get("company_name", ""),
         }
@@ -1615,17 +1681,17 @@ def cmd_show_position(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             # Get position details
             pos_query = f'''match
-                $p isa jobhunt-position, has id "{args.id}";
+                $p isa jhunt-position, has id "{args.id}";
             fetch {{
                 "id": $p.id,
                 "name": $p.name,
-                "job-url": $p.job-url,
-                "location": $p.location,
-                "remote-policy": $p.remote-policy,
-                "salary-range": $p.salary-range,
-                "team-size": $p.team-size,
-                "priority-level": $p.priority-level,
-                "deadline": $p.deadline
+                "jhunt-job-url": $p.jhunt-job-url,
+                "location": $p.alh-location,
+                "jhunt-remote-policy": $p.jhunt-remote-policy,
+                "jhunt-salary-range": $p.jhunt-salary-range,
+                "jhunt-team-size": $p.jhunt-team-size,
+                "jhunt-priority-level": $p.jhunt-priority-level,
+                "deadline": $p.jhunt-deadline
             }};'''
             pos_result = list(tx.query(pos_query).resolve())
 
@@ -1635,33 +1701,33 @@ def cmd_show_position(args):
 
             # Get company
             company_query = f'''match
-                $p isa jobhunt-position, has id "{args.id}";
-                (position: $p, employer: $c) isa position-at-company;
+                $p isa jhunt-position, has id "{args.id}";
+                (position: $p, employer: $c) isa jhunt-position-at-company;
             fetch {{
                 "id": $c.id,
                 "name": $c.name,
-                "company-url": $c.company-url,
-                "location": $c.location
+                "alh-company-url": $c.alh-company-url,
+                "location": $c.alh-location
             }};'''
             company_result = list(tx.query(company_query).resolve())
 
             # Query each note subtype separately so we can return type
             # labels and type-specific attributes for the dashboard
             NOTE_TYPE_ATTRS = {
-                "jobhunt-application-note": ["id", "name", "content", "application-status", "applied-date", "response-date"],
-                "jobhunt-fit-analysis-note": ["id", "name", "content", "fit-score", "fit-summary"],
-                "jobhunt-interview-note": ["id", "name", "content", "interview-date"],
-                "jobhunt-interaction-note": ["id", "name", "content", "interaction-type", "interaction-date"],
-                "jobhunt-research-note": ["id", "name", "content"],
-                "jobhunt-strategy-note": ["id", "name", "content"],
-                "jobhunt-skill-gap-note": ["id", "name", "content"],
+                "jhunt-application-note": ["id", "name", "content", "jhunt-application-status", "jhunt-applied-date", "jhunt-response-date"],
+                "jhunt-fit-analysis-note": ["id", "name", "content", "jhunt-fit-score", "jhunt-fit-summary"],
+                "jhunt-interview-note": ["id", "name", "content", "jhunt-interview-date"],
+                "jhunt-interaction-note": ["id", "name", "content", "alh-interaction-type", "alh-interaction-date"],
+                "jhunt-research-note": ["id", "name", "content"],
+                "jhunt-strategy-note": ["id", "name", "content"],
+                "jhunt-skill-gap-note": ["id", "name", "content"],
             }
             notes_result = []
             for ntype, attr_list in NOTE_TYPE_ATTRS.items():
                 attr_fetch = ", ".join(f'"{a}": $n.{a}' for a in attr_list)
                 q = f'''match
-                    $p isa jobhunt-position, has id "{args.id}";
-                    (note: $n, subject: $p) isa aboutness;
+                    $p isa jhunt-position, has id "{args.id}";
+                    (note: $n, subject: $p) isa alh-aboutness;
                     $n isa {ntype};
                 fetch {{ {attr_fetch} }};'''
                 for r in tx.query(q).resolve():
@@ -1670,46 +1736,46 @@ def cmd_show_position(args):
 
             # Get requirements
             req_query = f'''match
-                $p isa jobhunt-position, has id "{args.id}";
-                (requirement: $r, position: $p) isa requirement-for;
+                $p isa jhunt-position, has id "{args.id}";
+                (requirement: $r, position: $p) isa jhunt-requirement-for;
             fetch {{
                 "id": $r.id,
-                "skill-name": $r.skill-name,
-                "skill-level": $r.skill-level,
-                "your-level": $r.your-level,
+                "jhunt-skill-name": $r.jhunt-skill-name,
+                "jhunt-skill-level": $r.jhunt-skill-level,
+                "jhunt-your-level": $r.jhunt-your-level,
                 "content": $r.content
             }};'''
             req_result = list(tx.query(req_query).resolve())
 
             # Get job description artifact
             artifact_query = f'''match
-                $p isa jobhunt-position, has id "{args.id}";
-                (artifact: $a, referent: $p) isa representation;
-                $a isa jobhunt-job-description;
+                $p isa jhunt-position, has id "{args.id}";
+                (artifact: $a, referent: $p) isa alh-representation;
+                $a isa jhunt-job-description;
             fetch {{ "id": $a.id, "content": $a.content }};'''
             artifact_result = list(tx.query(artifact_query).resolve())
 
             # Get tags
             tags_query = f'''match
-                $p isa jobhunt-position, has id "{args.id}";
-                (tagged-entity: $p, tag: $t) isa tagging;
+                $p isa jhunt-position, has id "{args.id}";
+                (tagged-entity: $p, tag: $t) isa alh-tagging;
             fetch {{ "name": $t.name }};'''
             tags_result = list(tx.query(tags_query).resolve())
 
             # Get background reading collections
             bg_cols = list(tx.query(f'''
-                match $p isa jobhunt-position, has id "{args.id}";
-                      $c isa collection;
-                      (opportunity: $p, reading-material: $c) isa jobhunt-background-reading;
+                match $p isa jhunt-position, has id "{args.id}";
+                      $c isa alh-collection;
+                      (opportunity: $p, reading-material: $c) isa jhunt-background-reading;
                 fetch {{ "collection-id": $c.id, "collection-name": $c.name }};
             ''').resolve())
 
             # Fetch descriptions — anon relation + has avoids $var naming issues
             bg_descs = {r["collection-id"]: r["description"]
                         for r in tx.query(f'''
-                match $p isa jobhunt-position, has id "{args.id}";
-                      $c isa collection, has id $cid;
-                      (opportunity: $p, reading-material: $c) isa jobhunt-background-reading,
+                match $p isa jhunt-position, has id "{args.id}";
+                      $c isa alh-collection, has id $cid;
+                      (opportunity: $p, reading-material: $c) isa jhunt-background-reading,
                           has description $desc;
                 fetch {{ "collection-id": $cid, "description": $desc }};
             ''').resolve()}
@@ -1742,14 +1808,14 @@ def cmd_show_company(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             # Get company
             company_query = f'''match
-                $c isa jobhunt-company, has id "{args.id}";
+                $c isa jhunt-company, has id "{args.id}";
             fetch {{
                 "id": $c.id,
                 "name": $c.name,
-                "company-url": $c.company-url,
-                "linkedin-url": $c.linkedin-url,
+                "alh-company-url": $c.alh-company-url,
+                "alh-linkedin-url": $c.alh-linkedin-url,
                 "description": $c.description,
-                "location": $c.location
+                "location": $c.alh-location
             }};'''
             company_result = list(tx.query(company_query).resolve())
 
@@ -1759,20 +1825,20 @@ def cmd_show_company(args):
 
             # Get positions at company
             pos_query = f'''match
-                $c isa jobhunt-company, has id "{args.id}";
-                (position: $p, employer: $c) isa position-at-company;
+                $c isa jhunt-company, has id "{args.id}";
+                (position: $p, employer: $c) isa jhunt-position-at-company;
             fetch {{
                 "id": $p.id,
                 "name": $p.name,
-                "job-url": $p.job-url,
-                "priority-level": $p.priority-level
+                "jhunt-job-url": $p.jhunt-job-url,
+                "jhunt-priority-level": $p.jhunt-priority-level
             }};'''
             pos_result = list(tx.query(pos_query).resolve())
 
             # Get notes about company
             notes_query = f'''match
-                $c isa jobhunt-company, has id "{args.id}";
-                (note: $n, subject: $c) isa aboutness;
+                $c isa jhunt-company, has id "{args.id}";
+                (note: $n, subject: $c) isa alh-aboutness;
             fetch {{
                 "id": $n.id,
                 "name": $n.name,
@@ -1796,16 +1862,16 @@ def cmd_show_gaps(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             # Get all requirements with their positions
             query = """match
-                $r isa jobhunt-requirement;
-                (requirement: $r, position: $p) isa requirement-for;
-                (note: $n, subject: $p) isa aboutness;
-                $n isa jobhunt-application-note, has application-status $status;
+                $r isa jhunt-requirement;
+                (requirement: $r, position: $p) isa jhunt-requirement-for;
+                (note: $n, subject: $p) isa alh-aboutness;
+                $n isa jhunt-application-note, has jhunt-application-status $status;
                 not { $status == "rejected"; };
                 not { $status == "withdrawn"; };
             fetch {
-                "skill-name": $r.skill-name,
-                "skill-level": $r.skill-level,
-                "your-level": $r.your-level,
+                "jhunt-skill-name": $r.jhunt-skill-name,
+                "jhunt-skill-level": $r.jhunt-skill-level,
+                "jhunt-your-level": $r.jhunt-your-level,
                 "pos-id": $p.id,
                 "pos-name": $p.name
             };"""
@@ -1813,42 +1879,42 @@ def cmd_show_gaps(args):
 
             # Get learning resources
             resources_query = """match
-                $res isa jobhunt-learning-resource;
+                $res isa jhunt-learning-resource;
             fetch {
                 "id": $res.id,
                 "name": $res.name,
-                "resource-type": $res.resource-type,
-                "resource-url": $res.resource-url,
-                "estimated-hours": $res.estimated-hours,
-                "completion-status": $res.completion-status
+                "jhunt-resource-type": $res.jhunt-resource-type,
+                "jhunt-resource-url": $res.jhunt-resource-url,
+                "jhunt-estimated-hours": $res.jhunt-estimated-hours,
+                "jhunt-completion-status": $res.jhunt-completion-status
             };"""
             resources = list(tx.query(resources_query).resolve())
 
-            # Get collections linked to requirements via addresses-requirement
+            # Get collections linked to requirements via jhunt-addresses-requirement
             coll_query = """match
-                $c isa collection;
-                (resource: $c, requirement: $req) isa addresses-requirement;
+                $c isa alh-collection;
+                (resource: $c, requirement: $req) isa jhunt-addresses-requirement;
             fetch {
                 "id": $c.id,
                 "name": $c.name,
                 "description": $c.description,
                 "req-id": $req.id,
-                "skill-name": $req.skill-name
+                "jhunt-skill-name": $req.jhunt-skill-name
             };"""
             coll_results = list(tx.query(coll_query).resolve())
 
     # Aggregate skills
     skill_map = {}
     for r in results:
-        skill = r.get("skill-name", "")
+        skill = r.get("jhunt-skill-name", "")
         if not skill:
             continue
 
         if skill not in skill_map:
             skill_map[skill] = {
                 "skill": skill,
-                "level": r.get("skill-level", ""),
-                "your_level": r.get("your-level", ""),
+                "level": r.get("jhunt-skill-level", ""),
+                "your_level": r.get("jhunt-your-level", ""),
                 "positions": [],
             }
 
@@ -1870,7 +1936,7 @@ def cmd_show_gaps(args):
             "name": cr.get("name", ""),
             "description": cr.get("description", ""),
             "requirement_id": cr.get("req-id", ""),
-            "skill_name": cr.get("skill-name", ""),
+            "skill_name": cr.get("jhunt-skill-name", ""),
         })
 
     print(
@@ -1894,33 +1960,33 @@ def cmd_learning_plan(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             # Get all learning resources
             query = """match
-                $res isa jobhunt-learning-resource;
+                $res isa jhunt-learning-resource;
             fetch {
                 "id": $res.id,
                 "name": $res.name,
-                "resource-type": $res.resource-type,
-                "resource-url": $res.resource-url,
-                "estimated-hours": $res.estimated-hours,
-                "completion-status": $res.completion-status
+                "jhunt-resource-type": $res.jhunt-resource-type,
+                "jhunt-resource-url": $res.jhunt-resource-url,
+                "jhunt-estimated-hours": $res.jhunt-estimated-hours,
+                "jhunt-completion-status": $res.jhunt-completion-status
             };"""
             results = list(tx.query(query).resolve())
 
             # Get collections linked to skill requirements
             coll_query = """match
-                $c isa collection;
-                (resource: $c, requirement: $req) isa addresses-requirement;
+                $c isa alh-collection;
+                (resource: $c, requirement: $req) isa jhunt-addresses-requirement;
             fetch {
                 "id": $c.id,
                 "name": $c.name,
                 "description": $c.description,
-                "skill-name": $req.skill-name
+                "jhunt-skill-name": $req.jhunt-skill-name
             };"""
             coll_results = list(tx.query(coll_query).resolve())
 
-            # Get papers referenced by learning resources via citation-reference
+            # Get papers referenced by learning resources via alh-citation-reference
             paper_query = """match
-                $res isa jobhunt-learning-resource;
-                (citing-item: $res, cited-item: $paper) isa citation-reference;
+                $res isa jhunt-learning-resource;
+                (citing-item: $res, cited-item: $paper) isa alh-citation-reference;
             fetch {
                 "res-id": $res.id,
                 "res-name": $res.name,
@@ -1935,10 +2001,10 @@ def cmd_learning_plan(args):
         res = {
             "id": r.get("id", ""),
             "name": r.get("name", ""),
-            "type": r.get("resource-type", ""),
-            "url": r.get("resource-url", ""),
-            "hours": r.get("estimated-hours", ""),
-            "status": r.get("completion-status", ""),
+            "type": r.get("jhunt-resource-type", ""),
+            "url": r.get("jhunt-resource-url", ""),
+            "hours": r.get("jhunt-estimated-hours", ""),
+            "status": r.get("jhunt-completion-status", ""),
         }
         resources.append(res)
 
@@ -1955,7 +2021,7 @@ def cmd_learning_plan(args):
     seen_colls = set()
     for cr in coll_results:
         coll_id = cr.get("id", "")
-        skill = cr.get("skill-name", "")
+        skill = cr.get("jhunt-skill-name", "")
         key = f"{coll_id}:{skill}"
         if key not in seen_colls:
             seen_colls.add(key)
@@ -1996,20 +2062,20 @@ def cmd_tag(args):
     with get_driver() as driver:
         # Create tag if not exists
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            tag_check = f'match $t isa tag, has name "{args.tag}"; fetch {{ "id": $t.id }};'
+            tag_check = f'match $t isa alh-tag, has name "{args.tag}"; fetch {{ "id": $t.id }};'
             existing_tag = list(tx.query(tag_check).resolve())
 
         if not existing_tag:
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
-                tx.query(f'insert $t isa tag, has id "{tag_id}", has name "{args.tag}";').resolve()
+                tx.query(f'insert $t isa alh-tag, has id "{tag_id}", has name "{args.tag}";').resolve()
                 tx.commit()
 
         # Create tagging relation
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(f'''match
-                $e isa identifiable-entity, has id "{args.entity}";
-                $t isa tag, has name "{args.tag}";
-            insert (tagged-entity: $e, tag: $t) isa tagging;''').resolve()
+                $e isa alh-identifiable-entity, has id "{args.entity}";
+                $t isa alh-tag, has name "{args.tag}";
+            insert (tagged-entity: $e, tag: $t) isa alh-tagging;''').resolve()
             tx.commit()
 
     print(json.dumps({"success": True, "entity": args.entity, "tag": args.tag}))
@@ -2020,8 +2086,8 @@ def cmd_search_tag(args):
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             query = f'''match
-                $t isa tag, has name "{args.tag}";
-                (tagged-entity: $e, tag: $t) isa tagging;
+                $t isa alh-tag, has name "{args.tag}";
+                (tagged-entity: $e, tag: $t) isa alh-tagging;
             fetch {{
                 "id": $e.id,
                 "name": $e.name
@@ -2047,15 +2113,15 @@ def cmd_add_requirement(args):
     req_id = args.id or generate_id("requirement")
     timestamp = get_timestamp()
 
-    query = f'''insert $r isa jobhunt-requirement,
+    query = f'''insert $r isa jhunt-requirement,
         has id "{req_id}",
-        has skill-name "{escape_string(args.skill)}",
+        has jhunt-skill-name "{escape_string(args.skill)}",
         has created-at {timestamp}'''
 
     if args.level:
-        query += f', has skill-level "{args.level}"'
+        query += f', has jhunt-skill-level "{args.level}"'
     if args.your_level:
-        query += f', has your-level "{args.your_level}"'
+        query += f', has jhunt-your-level "{args.your_level}"'
     if args.content:
         query += f', has content "{escape_string(args.content)}"'
 
@@ -2069,9 +2135,9 @@ def cmd_add_requirement(args):
         # Link to position
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             rel_query = f'''match
-                $r isa jobhunt-requirement, has id "{req_id}";
-                $p isa jobhunt-position, has id "{args.position}";
-            insert (requirement: $r, position: $p) isa requirement-for;'''
+                $r isa jhunt-requirement, has id "{req_id}";
+                $p isa jhunt-position, has id "{args.position}";
+            insert (requirement: $r, position: $p) isa jhunt-requirement-for;'''
             tx.query(rel_query).resolve()
             tx.commit()
 
@@ -2092,6 +2158,53 @@ def cmd_add_requirement(args):
 # =============================================================================
 
 
+def cmd_create_seeker_profile(args):
+    """Create a job-seeker role for a person (BFO/UFO role pattern)."""
+    role_id = args.id or generate_id("jhunt-seeker")
+    timestamp = get_timestamp()
+
+    query = f'''insert $role isa jhunt-job-seeker-role,
+        has id "{role_id}",
+        has name "{escape_string(args.name or 'Job Search')}",
+        has created-at {timestamp},
+        has alh-role-status "active",
+        has alh-role-started-on {timestamp}'''
+
+    if args.target_role:
+        query += f', has jhunt-target-role "{escape_string(args.target_role)}"'
+    if args.industries:
+        query += f', has jhunt-target-industries "{escape_string(args.industries)}"'
+    if args.salary:
+        query += f', has jhunt-salary-expectations "{escape_string(args.salary)}"'
+    if args.location:
+        query += f', has jhunt-location-preference "{escape_string(args.location)}"'
+    if args.focus:
+        query += f', has jhunt-search-focus "{escape_string(args.focus)}"'
+
+    query += ";"
+
+    with get_driver() as driver:
+        # Create the role entity
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(query).resolve()
+            tx.commit()
+
+        # Link role to person via alh-role-bearing
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(f'''match
+                $person isa alh-person, has id "{escape_string(args.person)}";
+                $role isa jhunt-job-seeker-role, has id "{role_id}";
+            insert (bearer: $person, borne-role: $role) isa alh-role-bearing;''').resolve()
+            tx.commit()
+
+    print(json.dumps({
+        "success": True,
+        "role_id": role_id,
+        "person_id": args.person,
+        "message": f"Job-seeker profile created for {args.person}",
+    }))
+
+
 def cmd_add_skill(args):
     """
     Add or update a skill in your profile.
@@ -2106,10 +2219,10 @@ def cmd_add_skill(args):
         # Check if skill already exists
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             check_query = f'''match
-                $s isa your-skill, has skill-name "{escape_string(args.name)}";
+                $s isa jhunt-your-skill, has jhunt-skill-name "{escape_string(args.name)}";
             fetch {{
-                "skill-name": $s.skill-name,
-                "skill-level": $s.skill-level
+                "jhunt-skill-name": $s.jhunt-skill-name,
+                "jhunt-skill-level": $s.jhunt-skill-level
             }};'''
             existing = list(tx.query(check_query).resolve())
 
@@ -2117,17 +2230,17 @@ def cmd_add_skill(args):
             # Update existing skill - delete and recreate
             with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
                 tx.query(f'''match
-                    $s isa your-skill, has skill-name "{escape_string(args.name)}";
+                    $s isa jhunt-your-skill, has jhunt-skill-name "{escape_string(args.name)}";
                 delete $s;''').resolve()
                 tx.commit()
 
         # Create skill
         skill_id = generate_id("skill")
-        skill_query = f'''insert $s isa your-skill,
+        skill_query = f'''insert $s isa jhunt-your-skill,
             has id "{skill_id}",
-            has skill-name "{escape_string(args.name)}",
-            has skill-level "{args.level}",
-            has last-updated {timestamp}'''
+            has jhunt-skill-name "{escape_string(args.name)}",
+            has jhunt-skill-level "{args.level}",
+            has jhunt-last-updated {timestamp}'''
 
         if args.description:
             skill_query += f', has description "{escape_string(args.description)}"'
@@ -2137,6 +2250,17 @@ def cmd_add_skill(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
             tx.query(skill_query).resolve()
             tx.commit()
+
+        # Link skill to active job-seeker role
+        try:
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                tx.query(f'''match
+                    $role isa jhunt-job-seeker-role, has alh-role-status "active";
+                    $skill isa jhunt-your-skill, has id "{skill_id}";
+                insert (seeker: $role, skill: $skill) isa jhunt-seeker-has-skill;''').resolve()
+                tx.commit()
+        except Exception:
+            pass  # seeker role may not exist
 
     action = "updated" if existing else "added"
     print(
@@ -2157,12 +2281,12 @@ def cmd_list_skills(args):
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             query = """match
-                $s isa your-skill;
+                $s isa jhunt-your-skill;
             fetch {
-                "skill-name": $s.skill-name,
-                "skill-level": $s.skill-level,
+                "jhunt-skill-name": $s.jhunt-skill-name,
+                "jhunt-skill-level": $s.jhunt-skill-level,
                 "description": $s.description,
-                "last-updated": $s.last-updated
+                "jhunt-last-updated": $s.jhunt-last-updated
             };"""
             results = list(tx.query(query).resolve())
 
@@ -2170,10 +2294,10 @@ def cmd_list_skills(args):
     skills = []
     for r in results:
         skill = {
-            "name": r.get("skill-name", ""),
-            "level": r.get("skill-level", ""),
+            "name": r.get("jhunt-skill-name", ""),
+            "level": r.get("jhunt-skill-level", ""),
             "description": r.get("description", ""),
-            "last_updated": r.get("last-updated", ""),
+            "last_updated": r.get("jhunt-last-updated", ""),
         }
         skills.append(skill)
 
@@ -2217,7 +2341,7 @@ def cmd_list_artifacts(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             # Get all job description artifacts
             artifacts_query = """match
-                $a isa jobhunt-job-description;
+                $a isa jhunt-job-description;
             fetch {
                 "id": $a.id,
                 "name": $a.name,
@@ -2234,10 +2358,10 @@ def cmd_list_artifacts(args):
 
                 # Check for notes on the linked position
                 notes_query = f'''match
-                    $a isa jobhunt-job-description, has id "{artifact_id}";
-                    (artifact: $a, referent: $p) isa representation;
-                    (note: $n, subject: $p) isa aboutness;
-                    not {{ $n isa jobhunt-application-note; }};
+                    $a isa jhunt-job-description, has id "{artifact_id}";
+                    (artifact: $a, referent: $p) isa alh-representation;
+                    (note: $n, subject: $p) isa alh-aboutness;
+                    not {{ $n isa jhunt-application-note; }};
                 fetch {{ "id": $n.id }};'''
 
                 try:
@@ -2290,7 +2414,7 @@ def cmd_show_artifact(args):
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
             # Get artifact - include cache-path and other cache attributes
             artifact_query = f'''match
-                $a isa jobhunt-job-description, has id "{args.id}";
+                $a isa jhunt-job-description, has id "{args.id}";
             fetch {{
                 "id": $a.id,
                 "name": $a.name,
@@ -2307,19 +2431,19 @@ def cmd_show_artifact(args):
                 print(json.dumps({"success": False, "error": "Artifact not found"}))
                 return
 
-            # Get linked position (specifically jobhunt-position)
+            # Get linked position (specifically jhunt-position)
             position_query = f'''match
-                $a isa jobhunt-job-description, has id "{args.id}";
-                (artifact: $a, referent: $p) isa representation;
-                $p isa jobhunt-position;
+                $a isa jhunt-job-description, has id "{args.id}";
+                (artifact: $a, referent: $p) isa alh-representation;
+                $p isa jhunt-position;
             fetch {{
                 "id": $p.id,
                 "name": $p.name,
-                "job-url": $p.job-url,
-                "location": $p.location,
-                "remote-policy": $p.remote-policy,
-                "salary-range": $p.salary-range,
-                "priority-level": $p.priority-level
+                "jhunt-job-url": $p.jhunt-job-url,
+                "location": $p.alh-location,
+                "jhunt-remote-policy": $p.jhunt-remote-policy,
+                "jhunt-salary-range": $p.jhunt-salary-range,
+                "jhunt-priority-level": $p.jhunt-priority-level
             }};'''
             position_result = list(tx.query(position_query).resolve())
 
@@ -2328,8 +2452,8 @@ def cmd_show_artifact(args):
             if position_result:
                 pos_id = position_result[0].get("id", "")
                 company_query = f'''match
-                    $p isa jobhunt-position, has id "{pos_id}";
-                    (position: $p, employer: $c) isa position-at-company;
+                    $p isa jhunt-position, has id "{pos_id}";
+                    (position: $p, employer: $c) isa jhunt-position-at-company;
                 fetch {{
                     "id": $c.id,
                     "name": $c.name
@@ -2378,11 +2502,11 @@ def cmd_show_artifact(args):
         output["position"] = {
             "id": pos.get("id", ""),
             "name": pos.get("name", ""),
-            "url": pos.get("job-url", ""),
+            "url": pos.get("jhunt-job-url", ""),
             "location": pos.get("location", ""),
-            "remote_policy": pos.get("remote-policy", ""),
-            "salary": pos.get("salary-range", ""),
-            "priority": pos.get("priority-level", ""),
+            "remote_policy": pos.get("jhunt-remote-policy", ""),
+            "salary": pos.get("jhunt-salary-range", ""),
+            "priority": pos.get("jhunt-priority-level", ""),
         }
 
     if company_result:
@@ -2452,29 +2576,29 @@ def _fetch_pipeline_data():
             # Get positions with status from application notes
             query = """
                 match
-                $p isa jobhunt-position;
-                (note: $n, subject: $p) isa aboutness;
-                $n isa jobhunt-application-note, has application-status $status;
+                $p isa jhunt-position;
+                (note: $n, subject: $p) isa alh-aboutness;
+                $n isa jhunt-application-note, has jhunt-application-status $status;
                 fetch {
                     "id": $p.id,
                     "name": $p.name,
-                    "short-name": $p.short-name,
-                    "job-url": $p.job-url,
-                    "priority-level": $p.priority-level,
-                    "status": $n.application-status
+                    "jhunt-short-name": $p.jhunt-short-name,
+                    "jhunt-job-url": $p.jhunt-job-url,
+                    "jhunt-priority-level": $p.jhunt-priority-level,
+                    "status": $n.jhunt-application-status
                 };
             """
             results = list(tx.query(query).resolve())
 
             # Also get positions WITHOUT application notes (still researching)
             all_pos_query = """
-                match $p isa jobhunt-position;
+                match $p isa jhunt-position;
                 fetch {
                     "id": $p.id,
                     "name": $p.name,
-                    "short-name": $p.short-name,
-                    "job-url": $p.job-url,
-                    "priority-level": $p.priority-level
+                    "jhunt-short-name": $p.jhunt-short-name,
+                    "jhunt-job-url": $p.jhunt-job-url,
+                    "jhunt-priority-level": $p.jhunt-priority-level
                 };
             """
             all_positions = list(tx.query(all_pos_query).resolve())
@@ -2488,9 +2612,9 @@ def _fetch_pipeline_data():
         tracked[pid] = {
             "id": pid,
             "name": r.get("name", ""),
-            "short_name": r.get("short-name", ""),
-            "priority": r.get("priority-level", ""),
-            "url": r.get("job-url", ""),
+            "short_name": r.get("jhunt-short-name", ""),
+            "priority": r.get("jhunt-priority-level", ""),
+            "url": r.get("jhunt-job-url", ""),
             "status": r.get("status", "researching"),
         }
 
@@ -2502,9 +2626,9 @@ def _fetch_pipeline_data():
         tracked[pid] = {
             "id": pid,
             "name": r.get("name", ""),
-            "short_name": r.get("short-name", ""),
-            "priority": r.get("priority-level", ""),
-            "url": r.get("job-url", ""),
+            "short_name": r.get("jhunt-short-name", ""),
+            "priority": r.get("jhunt-priority-level", ""),
+            "url": r.get("jhunt-job-url", ""),
             "status": "researching",
         }
 
@@ -2557,16 +2681,16 @@ def cmd_report_position(args):
 
             # Get position attributes
             pos_query = f"""
-                match $p isa jobhunt-position, has id "{pid}";
+                match $p isa jhunt-position, has id "{pid}";
                 fetch {{
                     "id": $p.id,
                     "name": $p.name,
-                    "short-name": $p.short-name,
-                    "job-url": $p.job-url,
-                    "salary-range": $p.salary-range,
-                    "location": $p.location,
-                    "remote-policy": $p.remote-policy,
-                    "priority-level": $p.priority-level
+                    "jhunt-short-name": $p.jhunt-short-name,
+                    "jhunt-job-url": $p.jhunt-job-url,
+                    "jhunt-salary-range": $p.jhunt-salary-range,
+                    "location": $p.alh-location,
+                    "jhunt-remote-policy": $p.jhunt-remote-policy,
+                    "jhunt-priority-level": $p.jhunt-priority-level
                 }};
             """
             pos_results = list(tx.query(pos_query).resolve())
@@ -2579,9 +2703,9 @@ def cmd_report_position(args):
             # Get notes content
             note_query = f"""
                 match
-                $p isa jobhunt-position, has id "{pid}";
-                $note isa note;
-                (subject: $p, note: $note) isa aboutness;
+                $p isa jhunt-position, has id "{pid}";
+                $note isa alh-note;
+                (subject: $p, note: $note) isa alh-aboutness;
                 fetch {{ "content": $note.content }};
             """
             try:
@@ -2592,35 +2716,35 @@ def cmd_report_position(args):
             # Get application status from application note
             status_query = f"""
                 match
-                $p isa jobhunt-position, has id "{pid}";
-                $n isa jobhunt-application-note;
-                (subject: $p, note: $n) isa aboutness;
-                fetch {{ "status": $n.application-status }};
+                $p isa jhunt-position, has id "{pid}";
+                $n isa jhunt-application-note;
+                (subject: $p, note: $n) isa alh-aboutness;
+                fetch {{ "status": $n.jhunt-application-status }};
             """
             try:
                 status_results = list(tx.query(status_query).resolve())
                 if status_results:
-                    attrs["application-status"] = status_results[0].get("status")
+                    attrs["jhunt-application-status"] = status_results[0].get("status")
             except Exception:
                 pass
 
     # Build markdown
-    title = attrs.get("short-name") or attrs.get("name", pid)
-    status = attrs.get("application-status", "unknown")
+    title = attrs.get("jhunt-short-name") or attrs.get("name", pid)
+    status = attrs.get("jhunt-application-status", "unknown")
     status_emoji = STATUS_EMOJI.get(status, "•")
 
     lines = [f"**{title}**", ""]
     lines.append(f"Status: {status_emoji} {status}")
-    if attrs.get("priority-level"):
-        lines.append(f"Priority: {PRIORITY_EMOJI.get(attrs['priority-level'], '')} {attrs['priority-level']}")
-    if attrs.get("job-url"):
-        lines.append(f"URL: {attrs['job-url']}")
-    if attrs.get("salary-range"):
-        lines.append(f"Salary: {attrs['salary-range']}")
+    if attrs.get("jhunt-priority-level"):
+        lines.append(f"Priority: {PRIORITY_EMOJI.get(attrs['jhunt-priority-level'], '')} {attrs['jhunt-priority-level']}")
+    if attrs.get("jhunt-job-url"):
+        lines.append(f"URL: {attrs['jhunt-job-url']}")
+    if attrs.get("jhunt-salary-range"):
+        lines.append(f"Salary: {attrs['jhunt-salary-range']}")
     if attrs.get("location"):
         lines.append(f"Location: {attrs['location']}")
-    if attrs.get("remote-policy"):
-        lines.append(f"Remote: {attrs['remote-policy']}")
+    if attrs.get("jhunt-remote-policy"):
+        lines.append(f"Remote: {attrs['jhunt-remote-policy']}")
     lines.append("")
 
     if all_notes:
@@ -2648,12 +2772,12 @@ def cmd_report_gaps(args):
             # Get all requirements with your skill levels
             query = """
                 match
-                $req isa jobhunt-requirement;
-                $p isa jobhunt-position;
-                (position: $p, requirement: $req) isa requirement-for;
+                $req isa jhunt-requirement;
+                $p isa jhunt-position;
+                (position: $p, requirement: $req) isa jhunt-requirement-for;
                 fetch {
-                    "skill": $req.skill-name,
-                    "level": $req.skill-level,
+                    "skill": $req.jhunt-skill-name,
+                    "level": $req.jhunt-skill-level,
                     "pos_name": $p.name
                 };
             """
@@ -2661,8 +2785,8 @@ def cmd_report_gaps(args):
 
             # Get your skills
             skill_query = """
-                match $s isa your-skill;
-                fetch { "name": $s.skill-name, "level": $s.skill-level };
+                match $s isa jhunt-your-skill;
+                fetch { "name": $s.jhunt-skill-name, "level": $s.jhunt-skill-level };
             """
             try:
                 skill_results = list(tx.query(skill_query).resolve())
@@ -2780,9 +2904,9 @@ def main():
     p.add_argument("--company", help="Company name (matched to existing or created)")
     p.add_argument("--url", help="Job posting URL")
     p.add_argument("--location", help="Job location")
-    p.add_argument("--remote-policy", choices=["remote", "hybrid", "onsite"], help="Remote policy")
+    p.add_argument("--jhunt-remote-policy", choices=["remote", "hybrid", "onsite"], help="Remote policy")
     p.add_argument("--salary", help="Salary range")
-    p.add_argument("--team-size", help="Team size")
+    p.add_argument("--jhunt-team-size", help="Team size")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Priority level")
     p.add_argument("--deadline", help="Application deadline (YYYY-MM-DD)")
     p.add_argument("--id", help="Specific ID")
@@ -2806,8 +2930,8 @@ def main():
     )
     p.add_argument("--date", help="Date of status change (YYYY-MM-DD)")
 
-    # set-short-name
-    p = subparsers.add_parser("set-short-name", help="Set short display name for a position")
+    # set-jhunt-short-name
+    p = subparsers.add_parser("set-jhunt-short-name", help="Set short display name for a position")
     p.add_argument("--position", required=True, help="Position ID")
     p.add_argument("--name", required=True, help="Short name (e.g., 'anthropic', 'langchain')")
 
@@ -2833,11 +2957,11 @@ def main():
     p.add_argument("--name", help="Note title")
     p.add_argument("--confidence", type=float, help="Confidence score (0.0-1.0)")
     p.add_argument("--tags", nargs="+", help="Tags to apply")
-    p.add_argument("--interaction-type", help="Type of interaction (for interaction notes)")
-    p.add_argument("--interaction-date", help="Date of interaction")
-    p.add_argument("--interview-date", help="Date of interview")
-    p.add_argument("--fit-score", type=float, help="Fit score (for fit-analysis notes)")
-    p.add_argument("--fit-summary", help="Fit summary")
+    p.add_argument("--alh-interaction-type", help="Type of interaction (for interaction notes)")
+    p.add_argument("--alh-interaction-date", help="Date of interaction")
+    p.add_argument("--jhunt-interview-date", help="Date of interview")
+    p.add_argument("--jhunt-fit-score", type=float, help="Fit score (for fit-analysis notes)")
+    p.add_argument("--jhunt-fit-summary", help="Fit summary")
     p.add_argument("--id", help="Specific ID")
 
     # upsert-summary
@@ -2878,7 +3002,7 @@ def main():
     # link-background
     p = subparsers.add_parser("link-background", help="Link paper collection to opportunity as background reading")
     p.add_argument("--opportunity", required=True, help="Opportunity ID (position, engagement, venture, lead)")
-    p.add_argument("--collection", required=True, help="Collection ID (scilit-corpus, trend-thread, etc.)")
+    p.add_argument("--collection", required=True, help="Collection ID (scilit-corpus, sltrend-thread, etc.)")
     p.add_argument("--description", help="Why this collection is relevant to the opportunity")
 
     # list-background
@@ -2886,7 +3010,7 @@ def main():
     p.add_argument("--opportunity", required=True, help="Opportunity ID")
 
     # link-paper
-    p = subparsers.add_parser("link-paper", help="Link learning resource to a paper via citation-reference")
+    p = subparsers.add_parser("link-paper", help="Link learning resource to a paper via alh-citation-reference")
     p.add_argument("--resource", required=True, help="Learning resource ID")
     p.add_argument("--paper", required=True, help="Paper ID (scilit-paper)")
 
@@ -2897,7 +3021,7 @@ def main():
     p.add_argument(
         "--level", choices=["required", "preferred", "nice-to-have"], help="Requirement level"
     )
-    p.add_argument("--your-level", choices=["strong", "some", "none"], help="Your skill level")
+    p.add_argument("--jhunt-your-level", choices=["strong", "some", "none"], help="Your skill level")
     p.add_argument("--content", help="Full requirement text")
     p.add_argument("--id", help="Specific ID")
 
@@ -2916,6 +3040,17 @@ def main():
 
     # list-skills
     subparsers.add_parser("list-skills", help="Show your skill profile")
+
+    # create-seeker-profile
+    p = subparsers.add_parser("create-seeker-profile", help="Create a job-seeker role for a person")
+    p.add_argument("--person", required=True, help="Person ID (e.g., op-f25ab4b15b0f)")
+    p.add_argument("--name", help="Profile name (default: 'Job Search')")
+    p.add_argument("--id", help="Custom role ID")
+    p.add_argument("--target-role", dest="target_role", help="Target role title")
+    p.add_argument("--industries", help="Target industries (comma-separated)")
+    p.add_argument("--salary", help="Salary expectations (e.g., '180k-220k')")
+    p.add_argument("--location", help="Location preference (e.g., 'Remote')")
+    p.add_argument("--focus", help="Search focus (free text)")
 
     # list-artifacts
     p = subparsers.add_parser(
@@ -2952,7 +3087,7 @@ def main():
     p.add_argument("--name", required=True, help="Venture name")
     p.add_argument("--company-id", dest="company_id", help="Company ID to link")
     p.add_argument("--stage", choices=["seed", "series-a", "series-b", "growth", "closed"], help="Venture stage")
-    p.add_argument("--equity-type", dest="equity_type", choices=["none", "advisor", "cofounder", "investor"], help="Equity type")
+    p.add_argument("--jhunt-equity-type", dest="equity_type", choices=["none", "advisor", "cofounder", "investor"], help="Equity type")
     p.add_argument("--status", choices=["seed", "series-a", "series-b", "growth", "closed"], help="Venture status")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Priority level")
     p.add_argument("--deadline", help="Deadline (YYYY-MM-DD)")
@@ -2983,12 +3118,14 @@ def main():
     p.add_argument("--type", choices=["position", "engagement", "venture", "lead", "all"], default="all", help="Opportunity type filter")
     p.add_argument("--status", help="Filter by opportunity status")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Filter by priority")
+    p.add_argument("--person", help="Filter by person ID (via seeker-pipeline)")
 
     # list-pipeline
     p = subparsers.add_parser("list-pipeline", help="Show application pipeline")
     p.add_argument("--status", help="Filter by status")
     p.add_argument("--priority", choices=["high", "medium", "low"], help="Filter by priority")
     p.add_argument("--tag", help="Filter by tag")
+    p.add_argument("--person", help="Filter by person ID (via seeker-pipeline)")
 
     # show-position
     p = subparsers.add_parser("show-position", help="Get position details")
@@ -3044,12 +3181,13 @@ def main():
         # Your skill profile
         "add-skill": cmd_add_skill,
         "list-skills": cmd_list_skills,
+        "create-seeker-profile": cmd_create_seeker_profile,
         # Artifacts (for sensemaking)
         "list-artifacts": cmd_list_artifacts,
         "show-artifact": cmd_show_artifact,
         # Application tracking
         "update-status": cmd_update_status,
-        "set-short-name": cmd_set_short_name,
+        "set-jhunt-short-name": cmd_set_short_name,
         "add-note": cmd_add_note,
         "upsert-summary": cmd_upsert_summary,
         "regenerate-summary": cmd_regenerate_summary,

@@ -1,9 +1,9 @@
 # =============================================================================
-# JOB HUNTING NOTEBOOK NAMESPACE - TypeDB 3.x Schema Extension
+# JOB HUNTING NOTEBOOK NAMESPACE (jhunt-) - TypeDB 3.x Schema Extension
 # =============================================================================
 # Domain-specific subtypes for job hunting and career management.
 # TypeDB as Claude's "world model" for reasoning about jobs, skills, and fit.
-# Namespace prefix: jobhunt-*
+# Namespace prefix: jhunt-*
 # =============================================================================
 
 define
@@ -13,68 +13,75 @@ define
 # -----------------------------------------------------------------------------
 
 # URL attributes
-attribute job-url, value string;
-attribute resource-url, value string;
+attribute jhunt-job-url, value string;
+attribute jhunt-resource-url, value string;
 
 # Position attributes
-attribute short-name, value string;
-attribute salary-range, value string;
-attribute remote-policy, value string;
-attribute team-size, value string;
+attribute jhunt-short-name, value string;
+attribute jhunt-salary-range, value string;
+attribute jhunt-remote-policy, value string;
+attribute jhunt-team-size, value string;
 
 # Application tracking
-attribute application-status, value string;
-attribute applied-date, value datetime;
-attribute interview-date, value datetime;
-attribute deadline, value datetime;
-attribute response-date, value datetime;
+attribute jhunt-application-status, value string;
+attribute jhunt-applied-date, value datetime;
+attribute jhunt-interview-date, value datetime;
+attribute jhunt-deadline, value datetime;
+attribute jhunt-response-date, value datetime;
 
 # Opportunity model attributes
-attribute opportunity-status, value string;
+attribute jhunt-opportunity-status, value string;
 # Per-type status values:
 #   engagement: proposal, active, paused, closed
 #   venture: seed, series-a, series-b, growth, closed
 #   lead: first-contact, active, inactive, closed
-# (positions use application-status on jobhunt-application-note instead)
-attribute engagement-type, value string;      # hourly | project | retainer | advisory
-attribute rate-info, value string;            # free text: "$X/hr", "TBD", "equity only"
-attribute venture-stage, value string;        # exploring | proposal-sent | negotiating | active | paused | closed
-attribute equity-type, value string;          # none | advisor | cofounder | investor
+# (positions use jhunt-application-status on jhunt-application-note instead)
+attribute jhunt-engagement-type, value string;      # hourly | project | retainer | advisory
+attribute jhunt-rate-info, value string;            # free text: "$X/hr", "TBD", "equity only"
+attribute jhunt-venture-stage, value string;        # exploring | proposal-sent | negotiating | active | paused | closed
+attribute jhunt-equity-type, value string;          # none | advisor | cofounder | investor
 
 # Skill/requirement attributes
-attribute skill-name, value string;
-attribute skill-level, value string;
-attribute your-level, value string;
+attribute jhunt-skill-name, value string;
+attribute jhunt-skill-level, value string;
+attribute jhunt-your-level, value string;
 
 # Learning resource attributes
-attribute resource-type, value string;
-attribute estimated-hours, value integer;
-attribute completion-status, value string;
+attribute jhunt-resource-type, value string;
+attribute jhunt-estimated-hours, value integer;
+attribute jhunt-completion-status, value string;
 
 # Contact attributes
-attribute contact-role, value string;
-attribute contact-email, value string;
+attribute jhunt-contact-role, value string;
+# jhunt-contact-email removed — use alh-email-address on alh-person instead
+
+# Job-seeker role attributes
+attribute jhunt-target-role, value string;
+attribute jhunt-target-industries, value string;
+attribute jhunt-salary-expectations, value string;
+attribute jhunt-location-preference, value string;
+attribute jhunt-search-focus, value string;
 
 # Fit analysis
-attribute fit-score, value double;
-attribute fit-summary, value string;
+attribute jhunt-fit-score, value double;
+attribute jhunt-fit-summary, value string;
 
 # Priority
-attribute priority-level, value string;
+attribute jhunt-priority-level, value string;
 
 # Your skill profile attributes
-attribute last-updated, value datetime;
+attribute jhunt-last-updated, value datetime;
 
 # Forager attributes (automated job discovery)
-attribute board-token, value string;
-attribute board-platform, value string;
-attribute external-job-id, value string;
-attribute discovered-at, value datetime;
-attribute relevance-score, value double;
-attribute candidate-status, value string;
-attribute search-query, value string;
-attribute search-location, value string;
-attribute triage-reason, value string;
+attribute jhunt-board-token, value string;
+attribute jhunt-board-platform, value string;
+attribute jhunt-external-job-id, value string;
+attribute jhunt-discovered-at, value datetime;
+attribute jhunt-relevance-score, value double;
+attribute jhunt-candidate-status, value string;
+attribute jhunt-search-query, value string;
+attribute jhunt-search-location, value string;
+attribute jhunt-triage-reason, value string;
 
 
 # -----------------------------------------------------------------------------
@@ -82,209 +89,245 @@ attribute triage-reason, value string;
 # -----------------------------------------------------------------------------
 
 # OPPORTUNITY-AT-ORGANIZATION - Links any opportunity to an organization
-relation opportunity-at-organization,
+relation jhunt-opportunity-at-organization,
     relates opportunity,
     relates organization;
 
 # POSITION-AT-COMPANY - Links position to employer
-relation position-at-company,
+relation jhunt-position-at-company,
     relates position,
     relates employer;
 
 # REQUIREMENT-FOR - Links requirements to positions
-relation requirement-for,
+relation jhunt-requirement-for,
     relates requirement,
     relates position;
 
 # ADDRESSES-REQUIREMENT - Learning resources that address skill gaps
-relation addresses-requirement,
+relation jhunt-addresses-requirement,
     owns confidence,
     relates resource,
     relates requirement;
 
 # SOURCE-PROVIDES - Links forager candidates to their search source
-relation source-provides,
+relation jhunt-source-provides,
     relates source,
     relates candidate;
+
+# SEEKER-PIPELINE - Links a job-seeker role to opportunities in their pipeline
+relation jhunt-seeker-pipeline,
+    relates seeker,
+    relates opportunity;
+
+# SEEKER-HAS-SKILL - Links a job-seeker role to their personal skills
+relation jhunt-seeker-has-skill,
+    relates seeker,
+    relates skill;
+
+# CONTACT-FOR-OPPORTUNITY - A person serving as contact for an opportunity
+# Replaces the jhunt-contact entity type with a relation
+relation jhunt-contact-for-opportunity,
+    owns jhunt-contact-role,
+    relates contact,
+    relates opportunity;
 
 # -----------------------------------------------------------------------------
 # ENTITY TYPES - Job Hunting Collections
 # -----------------------------------------------------------------------------
 
-# JOBHUNT-SEARCH - A job search campaign (set of positions being tracked together)
-entity jobhunt-search sub collection;
+# JHUNT-SEARCH - A job search campaign (set of positions being tracked together)
+entity jhunt-search sub alh-collection;
 
 
 # -----------------------------------------------------------------------------
 # ENTITY TYPES - Your Profile
 # -----------------------------------------------------------------------------
 
-# YOUR-SKILL - Your personal skill/capability for gap analysis
-entity your-skill sub domain-thing,
-    owns skill-name,
-    owns skill-level,
-    owns last-updated;
+# JHUNT-JOB-SEEKER-ROLE - The role a person plays as an active job seeker
+# BFO/UFO pattern: anti-rigid, externally grounded, bearer-dependent on alh-person
+entity jhunt-job-seeker-role sub alh-role,
+    owns jhunt-target-role,
+    owns jhunt-target-industries,
+    owns jhunt-salary-expectations,
+    owns jhunt-location-preference,
+    owns jhunt-search-focus,
+    plays jhunt-seeker-pipeline:seeker,
+    plays jhunt-seeker-has-skill:seeker;
+
+# JHUNT-YOUR-SKILL - Personal skill/capability for gap analysis
+entity jhunt-your-skill sub alh-domain-thing,
+    owns jhunt-skill-name,
+    owns jhunt-skill-level,
+    owns jhunt-last-updated,
+    plays jhunt-seeker-has-skill:skill;
 
 
 # -----------------------------------------------------------------------------
 # ENTITY TYPES - Job Hunting Things
 # -----------------------------------------------------------------------------
 
-# JOBHUNT-SEARCH-SOURCE - A company job board to search (forager)
-entity jobhunt-search-source sub domain-thing,
-    owns board-token,
-    owns board-platform,
-    owns company-url,
-    owns search-query,
-    owns search-location,
-    plays source-provides:source;
+# JHUNT-SEARCH-SOURCE - A company job board to search (forager)
+entity jhunt-search-source sub alh-domain-thing,
+    owns jhunt-board-token,
+    owns jhunt-board-platform,
+    owns alh-company-url,
+    owns jhunt-search-query,
+    owns jhunt-search-location,
+    plays jhunt-source-provides:source;
 
-# JOBHUNT-CANDIDATE - A discovered job posting (forager, lightweight)
-entity jobhunt-candidate sub domain-thing,
-    owns job-url,
-    owns external-job-id,
-    owns location,
-    owns discovered-at,
-    owns relevance-score,
-    owns candidate-status,
-    owns triage-reason,
-    plays source-provides:candidate;
+# JHUNT-CANDIDATE - A discovered job posting (forager, lightweight)
+entity jhunt-candidate sub alh-domain-thing,
+    owns jhunt-job-url,
+    owns jhunt-external-job-id,
+    owns alh-location,
+    owns jhunt-discovered-at,
+    owns jhunt-relevance-score,
+    owns jhunt-candidate-status,
+    owns jhunt-triage-reason,
+    plays jhunt-source-provides:candidate;
 
-# JOBHUNT-COMPANY - An organization in the job search context
-entity jobhunt-company sub organization,
-    plays position-at-company:employer,
-    plays opportunity-at-organization:organization;
+# JHUNT-COMPANY - An organization in the job search context
+entity jhunt-company sub alh-organization,
+    plays jhunt-position-at-company:employer,
+    plays jhunt-opportunity-at-organization:organization;
 
-# JOBHUNT-OPPORTUNITY - Base supertype for all trackable career opportunities
-entity jobhunt-opportunity sub domain-thing,
-    owns opportunity-status,
-    owns priority-level,
-    owns deadline,
-    plays opportunity-at-organization:opportunity;
+# JHUNT-OPPORTUNITY - Base supertype for all trackable career opportunities
+entity jhunt-opportunity sub alh-domain-thing,
+    owns jhunt-opportunity-status,
+    owns jhunt-priority-level,
+    owns jhunt-deadline,
+    plays jhunt-opportunity-at-organization:opportunity,
+    plays jhunt-seeker-pipeline:opportunity,
+    plays jhunt-contact-for-opportunity:opportunity;
 
-# JOBHUNT-POSITION - A specific role/job posting (formal employment application)
-entity jobhunt-position sub jobhunt-opportunity,
-    owns job-url,
-    owns short-name,
-    owns salary-range,
-    owns location,
-    owns remote-policy,
-    owns team-size,
-    plays position-at-company:position,
-    plays requirement-for:position;
+# JHUNT-POSITION - A specific role/job posting (formal employment application)
+entity jhunt-position sub jhunt-opportunity,
+    owns jhunt-job-url,
+    owns jhunt-short-name,
+    owns jhunt-salary-range,
+    owns alh-location,
+    owns jhunt-remote-policy,
+    owns jhunt-team-size,
+    plays jhunt-position-at-company:position,
+    plays jhunt-requirement-for:position;
 
-# JOBHUNT-ENGAGEMENT - Paid consulting/service work for a client
-entity jobhunt-engagement sub jobhunt-opportunity,
-    owns short-name,
-    owns engagement-type,
-    owns rate-info;
+# JHUNT-ENGAGEMENT - Paid consulting/service work for a client
+entity jhunt-engagement sub jhunt-opportunity,
+    owns jhunt-short-name,
+    owns jhunt-engagement-type,
+    owns jhunt-rate-info;
 
-# JOBHUNT-VENTURE - Startup/advisory/equity opportunity
-entity jobhunt-venture sub jobhunt-opportunity,
-    owns short-name,
-    owns venture-stage,
-    owns equity-type;
+# JHUNT-VENTURE - Startup/advisory/equity opportunity
+entity jhunt-venture sub jhunt-opportunity,
+    owns jhunt-short-name,
+    owns jhunt-venture-stage,
+    owns jhunt-equity-type;
 
-# JOBHUNT-LEAD - Early-stage networking contact with undefined role
-entity jobhunt-lead sub jobhunt-opportunity,
-    owns short-name;
+# JHUNT-LEAD - Early-stage networking contact with undefined role
+entity jhunt-lead sub jhunt-opportunity,
+    owns jhunt-short-name;
 
-# JOBHUNT-LEARNING-RESOURCE - Course, tutorial, book, etc.
-entity jobhunt-learning-resource sub domain-thing,
-    owns resource-type,
-    owns resource-url,
-    owns estimated-hours,
-    owns completion-status,
-    plays addresses-requirement:resource;
+# JHUNT-LEARNING-RESOURCE - Course, tutorial, book, etc.
+entity jhunt-learning-resource sub alh-domain-thing,
+    owns jhunt-resource-type,
+    owns jhunt-resource-url,
+    owns jhunt-estimated-hours,
+    owns jhunt-completion-status,
+    plays jhunt-addresses-requirement:resource;
 
-# JOBHUNT-CONTACT - A person in the job search process (recruiter, hiring manager, etc.)
-entity jobhunt-contact sub person,
-    owns contact-role,
-    owns contact-email;
+# NOTE: jhunt-contact entity type removed — use jhunt-contact-for-opportunity relation instead.
+# Contact role and email are now on the relation and alh-person respectively.
 
 
 # -----------------------------------------------------------------------------
 # ENTITY TYPES - Job Hunting Artifacts
 # -----------------------------------------------------------------------------
 
-entity jobhunt-job-description sub artifact;
-entity jobhunt-resume sub artifact;
-entity jobhunt-cover-letter sub artifact;
-entity jobhunt-company-page sub artifact;
-entity jobhunt-proposal sub artifact;
+entity jhunt-job-description sub alh-artifact;
+entity jhunt-resume sub alh-artifact;
+entity jhunt-cover-letter sub alh-artifact;
+entity jhunt-company-page sub alh-artifact;
+entity jhunt-proposal sub alh-artifact;
 
 
 # -----------------------------------------------------------------------------
 # ENTITY TYPES - Job Hunting Fragments (extracted from job descriptions)
 # -----------------------------------------------------------------------------
 
-# JOBHUNT-REQUIREMENT - A single requirement extracted from JD
-entity jobhunt-requirement sub fragment,
-    owns skill-name,
-    owns skill-level,
-    owns your-level,
-    plays requirement-for:requirement,
-    plays addresses-requirement:requirement;
+# JHUNT-REQUIREMENT - A single requirement extracted from JD
+entity jhunt-requirement sub alh-fragment,
+    owns jhunt-skill-name,
+    owns jhunt-skill-level,
+    owns jhunt-your-level,
+    plays jhunt-requirement-for:requirement,
+    plays jhunt-addresses-requirement:requirement;
 
-entity jobhunt-responsibility sub fragment;
-entity jobhunt-qualification sub fragment;
+entity jhunt-responsibility sub alh-fragment;
+entity jhunt-qualification sub alh-fragment;
 
 
 # -----------------------------------------------------------------------------
 # ENTITY TYPES - Job Hunting Notes
 # -----------------------------------------------------------------------------
 
-entity jobhunt-application-note sub note,
-    owns application-status,
-    owns applied-date,
-    owns response-date;
+entity jhunt-application-note sub alh-note,
+    owns jhunt-application-status,
+    owns jhunt-applied-date,
+    owns jhunt-response-date;
 
-entity jobhunt-research-note sub note;
+entity jhunt-research-note sub alh-note;
 
-entity jobhunt-interview-note sub note,
-    owns interview-date;
+entity jhunt-interview-note sub alh-note,
+    owns jhunt-interview-date;
 
-entity jobhunt-strategy-note sub note;
-entity jobhunt-skill-gap-note sub note;
+entity jhunt-strategy-note sub alh-note;
+entity jhunt-skill-gap-note sub alh-note;
 
-entity jobhunt-fit-analysis-note sub note,
-    owns fit-score,
-    owns fit-summary;
+entity jhunt-fit-analysis-note sub alh-note,
+    owns jhunt-fit-score,
+    owns jhunt-fit-summary;
 
-entity jobhunt-interaction-note sub note,
-    owns interaction-type,
-    owns interaction-date;
+entity jhunt-interaction-note sub alh-note,
+    owns alh-interaction-type,
+    owns alh-interaction-date;
 
-# Opportunity summary — one per opportunity, overwritten as facts accumulate.
+# Opportunity summary -- one per opportunity, overwritten as facts accumulate.
 # Markdown format with sections (## Company, ## Role, ## Fit, ## Contacts, ## Timeline).
 # This is the primary embedding text for the opportunity map.
-entity jobhunt-opp-summary-note sub note;
+entity jhunt-opp-summary-note sub alh-note;
 
-# Dashboard UI state — stores map coordinates, filter settings as JSON content.
-# Linked to the operator-user via aboutness (note: $state, subject: $operator).
+# Dashboard UI state -- stores map coordinates, filter settings as JSON content.
+# Linked to the nbmem-operator-user via alh-aboutness (note: $state, subject: $operator).
 # Most recent one by created-at is current state. Content is JSON:
 #   { "coordinates": { "opp-id": { "x": 0.5, "y": -0.3 }, ... },
 #     "filters": { "types": ["position","lead"], "statuses": ["researching","applied","interviewing"] } }
-entity jobhunt-dashboard-state-note sub note;
+entity jhunt-dashboard-state-note sub alh-note;
+
+# CC brief/feedback notes (added for cold-call workflow)
+entity jhunt-cc-brief-note sub alh-note;
+entity jhunt-cc-feedback-note sub alh-note;
 
 
 # -----------------------------------------------------------------------------
 # CROSS-NAMESPACE EXTENSIONS
 # -----------------------------------------------------------------------------
 
-# Allow paper collections to address skill requirements (bridges scilit <-> jobhunt)
-collection plays addresses-requirement:resource;
+# Allow paper collections to address skill requirements (bridges scilit <-> jhunt)
+alh-collection plays jhunt-addresses-requirement:resource;
 
 # BACKGROUND-READING - Links paper collections to job opportunities as research context
-relation jobhunt-background-reading,
+relation jhunt-background-reading,
     owns created-at,
     owns description,
     owns provenance,
     relates opportunity,
     relates reading-material;
 
-jobhunt-opportunity plays jobhunt-background-reading:opportunity;
-collection plays jobhunt-background-reading:reading-material;
+jhunt-opportunity plays jhunt-background-reading:opportunity;
+alh-collection plays jhunt-background-reading:reading-material;
+
+# Person plays contact role in job search context
+entity alh-person plays jhunt-contact-for-opportunity:contact;
 
 
 # =============================================================================
