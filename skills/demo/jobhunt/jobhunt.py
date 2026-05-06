@@ -1857,101 +1857,155 @@ def cmd_show_company(args):
 
 
 def cmd_show_gaps(args):
-    """Show skill gaps across active applications."""
+    """Compute candidate-to-market fit: seeker skills vs position requirements."""
+    level_value = {"none": 0, "aware": 1, "learning": 1, "practiced": 2, "some": 2, "expert": 3, "strong": 3}
+    req_threshold = {"required": 2, "preferred": 1, "nice-to-have": 0}
+    req_weight = {"required": 2.0, "preferred": 1.0, "nice-to-have": 0.5}
+
     with get_driver() as driver:
         with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
-            # Get all requirements with their positions
-            query = """match
-                $r isa jhunt-requirement;
+            # 1. Get all seeker skills
+            skills_query = """match $s isa jhunt-your-skill, has jhunt-skill-name $sn, has jhunt-skill-level $sl;
+                fetch { "name": $sn, "level": $sl };"""
+            skill_results = list(tx.query(skills_query).resolve())
+
+            # 2. Get all requirements for non-rejected/withdrawn positions
+            req_query = """match
+                $r isa jhunt-requirement, has jhunt-skill-name $sn, has jhunt-skill-level $sl;
                 (requirement: $r, position: $p) isa jhunt-requirement-for;
                 (note: $n, subject: $p) isa alh-aboutness;
                 $n isa jhunt-application-note, has jhunt-application-status $status;
                 not { $status == "rejected"; };
                 not { $status == "withdrawn"; };
             fetch {
-                "jhunt-skill-name": $r.jhunt-skill-name,
-                "jhunt-skill-level": $r.jhunt-skill-level,
-                "jhunt-your-level": $r.jhunt-your-level,
-                "pos-id": $p.id,
-                "pos-name": $p.name
+                "skill": $sn, "level": $sl,
+                "pos-id": $p.id, "pos-name": $p.name
             };"""
-            results = list(tx.query(query).resolve())
+            req_results = list(tx.query(req_query).resolve())
 
-            # Get learning resources
-            resources_query = """match
-                $res isa jhunt-learning-resource;
-            fetch {
-                "id": $res.id,
-                "name": $res.name,
-                "jhunt-resource-type": $res.jhunt-resource-type,
-                "jhunt-resource-url": $res.jhunt-resource-url,
-                "jhunt-estimated-hours": $res.jhunt-estimated-hours,
-                "jhunt-completion-status": $res.jhunt-completion-status
-            };"""
-            resources = list(tx.query(resources_query).resolve())
+            # 3. Get alt-labels for concept matching
+            alt_query = """match $c isa jhunt-skill-concept, has name $cn, has jhunt-alt-label $alt;
+                fetch { "name": $cn, "alt": $alt };"""
+            try:
+                alt_results = list(tx.query(alt_query).resolve())
+            except Exception:
+                alt_results = []
 
-            # Get collections linked to requirements via jhunt-addresses-requirement
-            coll_query = """match
-                $c isa alh-collection;
-                (resource: $c, requirement: $req) isa jhunt-addresses-requirement;
-            fetch {
-                "id": $c.id,
-                "name": $c.name,
-                "description": $c.description,
-                "req-id": $req.id,
-                "jhunt-skill-name": $req.jhunt-skill-name
-            };"""
-            coll_results = list(tx.query(coll_query).resolve())
+    # Build skill lookup (lowercase name -> level)
+    my_skills = {}
+    for s in skill_results:
+        my_skills[s["name"].lower()] = s["level"]
 
-    # Aggregate skills
-    skill_map = {}
-    for r in results:
-        skill = r.get("jhunt-skill-name", "")
-        if not skill:
-            continue
+    # Build alt-label -> canonical name lookup
+    alt_to_canonical = {}
+    for a in alt_results:
+        canonical = a["name"].lower()
+        alt = a["alt"].lower()
+        alt_to_canonical[alt] = canonical
 
-        if skill not in skill_map:
-            skill_map[skill] = {
-                "skill": skill,
-                "level": r.get("jhunt-skill-level", ""),
-                "your_level": r.get("jhunt-your-level", ""),
-                "positions": [],
-            }
+    def lookup_my_level(skill_name):
+        """Find seeker's level for a skill, checking alt-labels."""
+        key = skill_name.lower()
+        # Direct match
+        if key in my_skills:
+            return my_skills[key]
+        # Alt-label match: look up canonical name, then check skills
+        canonical = alt_to_canonical.get(key)
+        if canonical and canonical in my_skills:
+            return my_skills[canonical]
+        # Check if skill_name IS a canonical name for which we have alt matches
+        for alt, canon in alt_to_canonical.items():
+            if canon == key and alt in my_skills:
+                return my_skills[alt]
+        return "none"
 
-        skill_map[skill]["positions"].append(
-            {"id": r.get("pos-id", ""), "title": r.get("pos-name", "")}
-        )
-
-    # Filter to gaps (where your_level is not 'strong')
-    gaps = [s for s in skill_map.values() if s.get("your_level") in [None, "none", "some", ""]]
-
-    # Sort by number of positions needing this skill
-    gaps.sort(key=lambda x: len(x["positions"]), reverse=True)
-
-    # Format collections linked to requirements
-    collections = []
-    for cr in coll_results:
-        collections.append({
-            "id": cr.get("id", ""),
-            "name": cr.get("name", ""),
-            "description": cr.get("description", ""),
-            "requirement_id": cr.get("req-id", ""),
-            "skill_name": cr.get("jhunt-skill-name", ""),
+    # Group requirements by position
+    positions = {}
+    for r in req_results:
+        pid = r["pos-id"]
+        if pid not in positions:
+            positions[pid] = {"id": pid, "name": r["pos-name"], "requirements": []}
+        positions[pid]["requirements"].append({
+            "skill": r["skill"],
+            "level": r["level"],
         })
 
-    print(
-        json.dumps(
-            {
-                "success": True,
-                "skill_gaps": gaps,
-                "total_gaps": len(gaps),
-                "resources": resources,
-                "collections": collections,
-            },
-            indent=2,
-            default=str,
-        )
-    )
+    # Compute per-position fit scores
+    position_fits = []
+    all_gaps = {}  # skill -> {gap_impact, positions}
+
+    for pid, pos in positions.items():
+        total_weight = 0
+        total_coverage = 0
+        reqs_detail = []
+
+        for req in pos["requirements"]:
+            my_level = lookup_my_level(req["skill"])
+            my_val = level_value.get(my_level, 0)
+            threshold = req_threshold.get(req["level"], 1)
+            weight = req_weight.get(req["level"], 1.0)
+
+            coverage = min(1.0, my_val / max(threshold, 1))
+            total_weight += weight
+            total_coverage += coverage * weight
+
+            reqs_detail.append({
+                "skill": req["skill"],
+                "required_level": req["level"],
+                "my_level": my_level,
+                "coverage": round(coverage, 2),
+            })
+
+            # Track gaps for learning priority
+            if coverage < 1.0:
+                gap_size = max(threshold - my_val, 0)
+                skill_key = req["skill"]
+                if skill_key not in all_gaps:
+                    all_gaps[skill_key] = {"skill": skill_key, "current_level": my_level, "gap_impact": 0, "positions": []}
+                all_gaps[skill_key]["gap_impact"] += gap_size * weight
+                all_gaps[skill_key]["positions"].append(pos["name"][:40])
+
+        fit_score = round(total_coverage / max(total_weight, 1), 2)
+        covered = len([r for r in reqs_detail if r["coverage"] >= 1.0])
+        gaps_count = len([r for r in reqs_detail if r["coverage"] < 1.0])
+
+        position_fits.append({
+            "id": pid,
+            "name": pos["name"],
+            "fit_score": fit_score,
+            "total_requirements": len(reqs_detail),
+            "covered": covered,
+            "gaps": gaps_count,
+            "requirements": reqs_detail,
+        })
+
+    # Sort positions by number of gaps (fewest gaps first)
+    position_fits.sort(key=lambda x: (x["gaps"], -x["covered"]))
+
+    # Learning priorities sorted by gap impact
+    learning_priorities = sorted(all_gaps.values(), key=lambda x: x["gap_impact"], reverse=True)
+    for lp in learning_priorities:
+        lp["needed_for"] = len(lp["positions"])
+        lp["gap_impact"] = round(lp["gap_impact"], 1)
+
+    # Also include legacy skill_gaps format for backward compatibility
+    legacy_gaps = []
+    for lp in learning_priorities:
+        legacy_gaps.append({
+            "skill": lp["skill"],
+            "level": "required",
+            "your_level": lp["current_level"],
+            "positions": [{"id": "", "title": p} for p in lp["positions"]],
+        })
+
+    print(json.dumps({
+        "success": True,
+        "seeker_skills": len(my_skills),
+        "positions_analyzed": len(position_fits),
+        "positions": position_fits,
+        "learning_priorities": learning_priorities,
+        "skill_gaps": legacy_gaps,
+    }, indent=2, default=str))
 
 
 def cmd_learning_plan(args):
