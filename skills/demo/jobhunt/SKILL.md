@@ -433,15 +433,49 @@ uv run python .claude/skills/jobhunt/jobhunt.py add-lead \
        --description "AI safety research company"
    ```
 
-5. **Extract requirements as fragments**
+5. **Extract requirements using the skill vocabulary**
+
+   Before extracting requirements, load the skill concept vocabulary:
    ```bash
+   uv run python .claude/skills/jobhunt/jobhunt.py list-concepts
+   ```
+   
+   This returns the full vocabulary with your proficiency levels, alt-labels, and hierarchy.
+   Use canonical concept names when creating requirements so they match your skill profile.
+   
+   For each skill in the posting:
+   - Look up the vocabulary for a matching concept (check alt-labels too)
+   - If match exists: use the canonical name from the vocabulary
+   - If no match: create a new concept first, then use it
+   - If the skill is **not in your profile** (shows as "?" in list-concepts):
+     **ASK THE USER to self-assess their level for this skill.**
+     Don't guess — the user knows their own capabilities. Ask:
+     "The posting requires [skill]. I don't have this in your profile yet.
+     How would you rate your proficiency: expert, practiced, aware, or none?"
+     Then create the skill with their assessment.
+   
+   ```bash
+   # Create a new concept if needed
+   uv run python .claude/skills/jobhunt/jobhunt.py add-concept \
+       --name "Molecular Simulation" \
+       --alt-labels "MD,Molecular Dynamics,Force Fields"
+   
+   # Add the user's self-assessed skill
+   uv run python .claude/skills/jobhunt/jobhunt.py add-skill \
+       --name "Molecular Simulation" --level "aware" \
+       --evidence "Read papers, understand concepts, no hands-on" \
+       --recency "reading 2026"
+   
+   # Then add the requirement (using the canonical concept name)
    uv run python .claude/skills/jobhunt/jobhunt.py add-requirement \
        --position "position-abc123" \
-       --skill "Python" \
-       --level "required" \
-       --your-level "strong" \
-       --content "5+ years Python experience, focus on ML systems"
+       --skill "Molecular Simulation" \
+       --level "required"
    ```
+   
+   **Key principle:** Never assume the user's skill level. If a requirement mentions
+   a skill not in their profile, ask them. Their self-assessment + evidence is the
+   ground truth, not the agent's inference.
 
 6. **Create analysis notes**
 

@@ -2280,6 +2280,176 @@ def cmd_add_skill(args):
     )
 
 
+def cmd_add_concept(args):
+    """Add a skill concept to the controlled vocabulary."""
+    concept_id = args.id or generate_id("concept")
+    timestamp = get_timestamp()
+
+    query = f'''insert $c isa jhunt-skill-concept,
+        has id "{concept_id}",
+        has name "{escape_string(args.name)}",
+        has created-at {timestamp}'''
+
+    if args.description:
+        query += f', has description "{escape_string(args.description)}"'
+
+    # Add alt-labels
+    alt_labels = []
+    if args.alt_labels:
+        for label in args.alt_labels.split(","):
+            label = label.strip()
+            if label:
+                query += f', has jhunt-alt-label "{escape_string(label)}"'
+                alt_labels.append(label)
+
+    query += ";"
+
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+            tx.query(query).resolve()
+            tx.commit()
+
+        # Link to broader concept if specified
+        if args.broader:
+            try:
+                with driver.transaction(TYPEDB_DATABASE, TransactionType.WRITE) as tx:
+                    tx.query(f'''match
+                        $broader isa jhunt-skill-concept, has name "{escape_string(args.broader)}";
+                        $narrower isa jhunt-skill-concept, has id "{concept_id}";
+                    insert (broader-skill: $broader, narrower-skill: $narrower) isa jhunt-skill-hierarchy;''').resolve()
+                    tx.commit()
+            except Exception:
+                pass  # broader concept may not exist
+
+    print(json.dumps({
+        "success": True,
+        "concept_id": concept_id,
+        "name": args.name,
+        "alt_labels": alt_labels,
+        "broader": args.broader,
+    }))
+
+
+def cmd_list_concepts(args):
+    """List skill concepts with seeker proficiency levels (prompt-friendly format)."""
+    with get_driver() as driver:
+        with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+            # Get all concepts
+            concept_query = """match $c isa jhunt-skill-concept;
+                fetch { "id": $c.id, "name": $c.name, "description": $c.description };"""
+            concepts = list(tx.query(concept_query).resolve())
+
+            # Get alt-labels per concept
+            alt_query = """match $c isa jhunt-skill-concept, has id $cid, has jhunt-alt-label $alt;
+                fetch { "id": $cid, "alt": $alt };"""
+            alt_results = list(tx.query(alt_query).resolve())
+
+            # Get seeker skills linked to concepts via skill-definition
+            skill_query = """match
+                $s isa jhunt-your-skill, has jhunt-skill-name $sn, has jhunt-skill-level $sl;
+                (concept: $c, defined-skill: $s) isa jhunt-skill-definition;
+                $c has id $cid;
+                fetch { "concept_id": $cid, "skill_name": $sn, "level": $sl };"""
+            try:
+                skill_links = list(tx.query(skill_query).resolve())
+            except Exception:
+                skill_links = []
+
+            # Get hierarchy
+            hier_query = """match
+                (broader-skill: $b, narrower-skill: $n) isa jhunt-skill-hierarchy;
+                $b has name $bn; $n has id $nid;
+                fetch { "narrower_id": $nid, "broader": $bn };"""
+            try:
+                hier_results = list(tx.query(hier_query).resolve())
+            except Exception:
+                hier_results = []
+
+    # Build lookup maps
+    alt_map = {}
+    for a in alt_results:
+        cid = a.get("id", "")
+        if cid not in alt_map:
+            alt_map[cid] = []
+        alt_map[cid].append(a.get("alt", ""))
+
+    skill_level_map = {}
+    for sl in skill_links:
+        skill_level_map[sl.get("concept_id", "")] = sl.get("level", "")
+
+    hier_map = {}
+    for h in hier_results:
+        hier_map[h.get("narrower_id", "")] = h.get("broader", "")
+
+    # If no skill links exist, fall back to matching by name
+    if not skill_links:
+        # Get all seeker skills for name-based matching
+        all_skills_query = """match $s isa jhunt-your-skill, has jhunt-skill-name $sn, has jhunt-skill-level $sl;
+            fetch { "name": $sn, "level": $sl };"""
+        with get_driver() as driver:
+            with driver.transaction(TYPEDB_DATABASE, TransactionType.READ) as tx:
+                all_skills = list(tx.query(all_skills_query).resolve())
+        skills_by_name = {s["name"].lower(): s["level"] for s in all_skills}
+    else:
+        skills_by_name = {}
+
+    # Build output
+    concept_list = []
+    for c in concepts:
+        cid = c.get("id", "")
+        name = c.get("name", "")
+        level = skill_level_map.get(cid, "")
+
+        # Fallback: match by name if no concept link
+        if not level and skills_by_name:
+            level = skills_by_name.get(name.lower(), "")
+
+        alts = alt_map.get(cid, [])
+        broader = hier_map.get(cid, "")
+
+        concept_list.append({
+            "id": cid,
+            "name": name,
+            "description": c.get("description", ""),
+            "level": level,
+            "alt_labels": alts,
+            "broader": broader,
+        })
+
+    # Sort by level then name
+    level_order = {"expert": 0, "strong": 0, "practiced": 1, "some": 1,
+                   "aware": 2, "learning": 2, "none": 3, "": 4}
+    concept_list.sort(key=lambda x: (level_order.get(x["level"], 5), x["name"]))
+
+    # Build compact prompt-friendly output
+    level_icons = {"expert": "★", "strong": "★", "practiced": "●", "some": "●",
+                   "aware": "○", "learning": "○", "none": "·", "": "?"}
+    lines = []
+    current_level = None
+    level_labels = {"expert": "EXPERT", "strong": "EXPERT", "practiced": "PRACTICED",
+                    "some": "PRACTICED", "aware": "AWARE", "learning": "AWARE",
+                    "none": "NONE", "": "NOT IN PROFILE"}
+
+    for c in concept_list:
+        lvl = c["level"] or ""
+        label = level_labels.get(lvl, "UNKNOWN")
+        if label != current_level:
+            current_level = label
+            lines.append(f"\n{label}:")
+
+        icon = level_icons.get(lvl, "?")
+        alt_str = f" [alt: {', '.join(c['alt_labels'])}]" if c["alt_labels"] else ""
+        broader_str = f" > {c['broader']}" if c["broader"] else ""
+        lines.append(f"  {icon} {c['name']}{alt_str}{broader_str}")
+
+    print(json.dumps({
+        "success": True,
+        "concepts": concept_list,
+        "count": len(concept_list),
+        "prompt_view": "\n".join(lines),
+    }, indent=2))
+
+
 def cmd_list_skills(args):
     """List your skill profile."""
     with get_driver() as driver:
@@ -3052,6 +3222,17 @@ def main():
     # list-skills
     subparsers.add_parser("list-skills", help="Show your skill profile")
 
+    # add-concept
+    p = subparsers.add_parser("add-concept", help="Add a skill concept to the vocabulary")
+    p.add_argument("--name", required=True, help="Preferred label (canonical name)")
+    p.add_argument("--alt-labels", dest="alt_labels", help="Comma-separated alternative labels")
+    p.add_argument("--description", help="What this skill covers")
+    p.add_argument("--broader", help="Name of broader concept (parent in hierarchy)")
+    p.add_argument("--id", help="Specific ID")
+
+    # list-concepts
+    subparsers.add_parser("list-concepts", help="List skill concepts with proficiency levels (prompt-friendly)")
+
     # create-seeker-profile
     p = subparsers.add_parser("create-seeker-profile", help="Create a job-seeker role for a person")
     p.add_argument("--person", required=True, help="Person ID (e.g., op-f25ab4b15b0f)")
@@ -3191,6 +3372,8 @@ def main():
         "add-position": cmd_add_position,
         # Your skill profile
         "add-skill": cmd_add_skill,
+        "add-concept": cmd_add_concept,
+        "list-concepts": cmd_list_concepts,
         "list-skills": cmd_list_skills,
         "create-seeker-profile": cmd_create_seeker_profile,
         # Artifacts (for sensemaking)
