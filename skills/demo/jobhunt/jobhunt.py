@@ -388,7 +388,7 @@ def cmd_ingest_job(args):
             rep_query = f'''match
                 $a isa jhunt-job-description, has id "{artifact_id}";
                 $p isa jhunt-position, has id "{position_id}";
-            insert (artifact: $a, referent: $p) isa alh-representation;'''
+            insert (alh-artifact: $a, referent: $p) isa alh-representation;'''
             tx.query(rep_query).resolve()
             tx.commit()
 
@@ -478,8 +478,8 @@ def cmd_add_company(args):
         query += f', has alh-linkedin-url "{escape_string(args.linkedin)}"'
     if args.description:
         query += f', has description "{escape_string(args.description)}"'
-    if args.alh-location:
-        query += f', has alh-location "{escape_string(args.alh-location)}"'
+    if args.location:
+        query += f', has alh-location "{escape_string(args.location)}"'
 
     query += ";"
 
@@ -503,18 +503,18 @@ def cmd_add_position(args):
 
     if args.url:
         query += f', has jhunt-job-url "{escape_string(args.url)}"'
-    if args.alh-location:
-        query += f', has alh-location "{escape_string(args.alh-location)}"'
-    if args.remote_policy:
-        query += f', has jhunt-remote-policy "{args.remote_policy}"'
+    if args.location:
+        query += f', has alh-location "{escape_string(args.location)}"'
+    if args.jhunt_remote_policy:
+        query += f', has jhunt-remote-policy "{args.jhunt_remote_policy}"'
     if args.salary:
         query += f', has jhunt-salary-range "{escape_string(args.salary)}"'
-    if args.team_size:
-        query += f', has jhunt-team-size "{escape_string(args.team_size)}"'
+    if args.jhunt_team_size:
+        query += f', has jhunt-team-size "{escape_string(args.jhunt_team_size)}"'
     if args.priority:
         query += f', has jhunt-priority-level "{args.priority}"'
-    if args.jhunt-deadline:
-        query += f", has jhunt-deadline {parse_date(args.jhunt-deadline)}"
+    if args.deadline:
+        query += f", has jhunt-deadline {parse_date(args.deadline)}"
 
     query += ";"
 
@@ -1247,8 +1247,8 @@ def cmd_add_engagement(args):
         query += f', has jhunt-opportunity-status "{args.status}"'
     if args.priority:
         query += f', has jhunt-priority-level "{args.priority}"'
-    if args.jhunt-deadline:
-        query += f', has jhunt-deadline {parse_date(args.jhunt-deadline)}'
+    if args.deadline:
+        query += f', has jhunt-deadline {parse_date(args.deadline)}'
     if args.description:
         query += f', has description "{escape_string(args.description)}"'
 
@@ -1288,8 +1288,8 @@ def cmd_add_venture(args):
         query += f', has jhunt-opportunity-status "{args.status}"'
     if args.priority:
         query += f', has jhunt-priority-level "{args.priority}"'
-    if args.jhunt-deadline:
-        query += f', has jhunt-deadline {parse_date(args.jhunt-deadline)}'
+    if args.deadline:
+        query += f', has jhunt-deadline {parse_date(args.deadline)}'
     if args.description:
         query += f', has description "{escape_string(args.description)}"'
 
@@ -1750,7 +1750,7 @@ def cmd_show_position(args):
             # Get job description artifact
             artifact_query = f'''match
                 $p isa jhunt-position, has id "{args.id}";
-                (artifact: $a, referent: $p) isa alh-representation;
+                (alh-artifact: $a, referent: $p) isa alh-representation;
                 $a isa jhunt-job-description;
             fetch {{ "id": $a.id, "content": $a.content }};'''
             artifact_result = list(tx.query(artifact_query).resolve())
@@ -2120,8 +2120,8 @@ def cmd_add_requirement(args):
 
     if args.level:
         query += f', has jhunt-skill-level "{args.level}"'
-    if args.your_level:
-        query += f', has jhunt-your-level "{args.your_level}"'
+    if args.jhunt_your_level:
+        query += f', has jhunt-your-level "{args.jhunt_your_level}"'
     if args.content:
         query += f', has content "{escape_string(args.content)}"'
 
@@ -2359,7 +2359,7 @@ def cmd_list_artifacts(args):
                 # Check for notes on the linked position
                 notes_query = f'''match
                     $a isa jhunt-job-description, has id "{artifact_id}";
-                    (artifact: $a, referent: $p) isa alh-representation;
+                    (alh-artifact: $a, referent: $p) isa alh-representation;
                     (note: $n, subject: $p) isa alh-aboutness;
                     not {{ $n isa jhunt-application-note; }};
                 fetch {{ "id": $n.id }};'''
@@ -2434,7 +2434,7 @@ def cmd_show_artifact(args):
             # Get linked position (specifically jhunt-position)
             position_query = f'''match
                 $a isa jhunt-job-description, has id "{args.id}";
-                (artifact: $a, referent: $p) isa alh-representation;
+                (alh-artifact: $a, referent: $p) isa alh-representation;
                 $p isa jhunt-position;
             fetch {{
                 "id": $p.id,

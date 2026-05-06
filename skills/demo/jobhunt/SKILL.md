@@ -129,7 +129,8 @@ Discovery is **agent-driven**: Claude browses job boards, reads postings, evalua
 2. **Agent reads** the seeker profile (target role, industries, skills from TypeDB)
 3. **Agent searches** using the best tool for the job:
    - Platform API (`search-source`) for bulk listing from Greenhouse/Lever boards
-   - Web search (`web-search` skill) for browsing careers pages, niche boards, or specific companies
+   - Playwright MCP (`search-source` on website sources) for browsing JS-rendered job sites like hiring.cafe
+   - Web search (`web-search` skill) for ad-hoc browsing of careers pages or niche boards
 4. **Agent reads** each posting and evaluates fit
 5. **Agent adds** good matches as candidates with rationale:
    ```bash
@@ -145,16 +146,22 @@ Discovery is **agent-driven**: Claude browses job boards, reads postings, evalua
 
 ### Configure Search Sources
 
-Sources are company job boards or aggregator platforms the agent can query via API:
+Three types of sources:
 
 ```bash
-# Company recruiting pages (Greenhouse/Lever/Ashby)
+# Company recruiting pages (Greenhouse/Lever/Ashby) — API-based, returns all jobs
 uv run python .claude/skills/jobhunt/job_forager.py add-source \
     --name "Anthropic" --platform greenhouse --token anthropic
 
-# Job board aggregators
+# Job board aggregators (LinkedIn/Remotive/Adzuna) — API-based, keyword search
 uv run python .claude/skills/jobhunt/job_forager.py add-source \
     --name "ML Jobs" --platform linkedin --query "machine learning" --location "San Francisco"
+
+# Job websites (hiring.cafe, etc.) — browser-based via Playwright MCP
+uv run python .claude/skills/jobhunt/job_forager.py add-source \
+    --name "hiring.cafe" --platform website \
+    --url "https://hiring.cafe" \
+    --query "AI scientist knowledge graph biotech drug discovery"
 ```
 
 | Platform | Type | Auth | Args |
@@ -165,6 +172,7 @@ uv run python .claude/skills/jobhunt/job_forager.py add-source \
 | `linkedin` | Aggregator | None | `--query`, `--location` |
 | `remotive` | Aggregator | None | `--query`, `--location` |
 | `adzuna` | Aggregator | API key | `--query`, `--location` |
+| `website` | Job website | Playwright MCP | `--url`, `--query` |
 
 ### Search a Source (Raw Listings)
 
@@ -176,6 +184,30 @@ uv run python .claude/skills/jobhunt/job_forager.py search-source --source "Anth
 ```
 
 The agent reads through these, fetches interesting postings via web-fetch, and adds good matches as candidates.
+
+### Search a Website Source (Playwright MCP)
+
+For `website` platform sources, `search-source` returns instructions instead of job listings.
+The agent uses Playwright MCP tools to browse the site interactively:
+
+1. **Get source info:** `search-source --source "hiring.cafe"` returns the URL and query
+2. **Navigate:** `browser_navigate` to the source URL
+3. **Search:** `browser_type` the query into the search box, submit
+4. **Wait:** `browser_snapshot` or `browser_take_screenshot` to see rendered results
+5. **Extract:** `browser_run_code_unsafe` to extract job URLs from the DOM, or read the snapshot
+6. **Evaluate:** `WebFetch` each interesting job URL (individual pages usually render server-side)
+7. **Add matches:** `add-candidate` with rationale for each good match
+
+**Example: hiring.cafe**
+
+hiring.cafe is a 41M+ job aggregator with AI-powered search. It uses client-side React rendering,
+so API/curl cannot access search results — Playwright MCP is required.
+
+The site auto-generates filters from natural language queries (Department, Industry, Tech Keywords).
+Sometimes the auto-filters are too narrow and return zero results. If this happens, click "Reject All"
+on the suggested filters and try a broader query, or remove specific filter chips.
+
+Individual job pages (`/viewjob/{id}`) render server-side and can be fetched with WebFetch for full details.
 
 ### Semantic Search Across Candidates
 

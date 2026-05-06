@@ -134,7 +134,8 @@ ADZUNA_APP_KEY = os.getenv("ADZUNA_APP_KEY", "")
 # Platform categories
 COMPANY_PLATFORMS = ["greenhouse", "lever", "ashby"]
 AGGREGATOR_PLATFORMS = ["linkedin", "remotive", "adzuna"]
-ALL_PLATFORMS = COMPANY_PLATFORMS + AGGREGATOR_PLATFORMS
+WEBSITE_PLATFORMS = ["website"]  # Browser-based, agent searches via Playwright MCP
+ALL_PLATFORMS = COMPANY_PLATFORMS + AGGREGATOR_PLATFORMS + WEBSITE_PLATFORMS
 
 # Profile-based query generation
 _GENERIC_SKILL_NAMES = {
@@ -801,6 +802,26 @@ def search_platform(source: dict, profile_terms: dict = None) -> list[dict]:
             )
         return search_adzuna(query, location)
 
+    elif platform == "website":
+        # Website sources require browser automation — return instructions for the agent
+        url = source.get("company_url", source.get("board_token", ""))
+        print(json.dumps({
+            "success": True,
+            "source": source.get("name", ""),
+            "platform": "website",
+            "type": "browser-required",
+            "url": url,
+            "query": query,
+            "total_jobs": 0,
+            "jobs": [],
+            "instructions": f"This source requires browser automation. Use Playwright MCP tools to: "
+                           f"1) Navigate to {url}, "
+                           f"2) Search for '{query}', "
+                           f"3) Extract job listings from the rendered page, "
+                           f"4) Use add-candidate to store matches.",
+        }, indent=2))
+        return []
+
     print(f"  Unknown platform: {platform}", file=sys.stderr)
     return []
 
@@ -1185,6 +1206,13 @@ def cmd_add_source(args):
         }))
         return
 
+    if args.platform in WEBSITE_PLATFORMS and not args.url:
+        print(json.dumps({
+            "success": False,
+            "error": f"Platform '{args.platform}' requires --url (job website URL)",
+        }))
+        return
+
     if args.platform in AGGREGATOR_PLATFORMS and not query_kw:
         print(f"  Note: No --query provided for {args.platform}. "
               "Will auto-generate from your skill profile during heartbeat.", file=sys.stderr)
@@ -1397,7 +1425,25 @@ def cmd_search_source(args):
         position_titles = load_position_titles()
         profile_terms = extract_profile_search_terms(skills, position_titles)
 
-    # Search the API — return raw results for agent evaluation
+    # Website sources require browser automation — return instructions
+    if source["platform"] in WEBSITE_PLATFORMS:
+        url = source.get("company_url") or ""
+        query = source.get("search_query") or ""
+        print(json.dumps({
+            "success": True,
+            "source": source["name"],
+            "source_id": source["id"],
+            "platform": "website",
+            "type": "browser-required",
+            "url": url,
+            "query": query,
+            "instructions": f"This source requires Playwright MCP browser automation. "
+                           f"Navigate to {url}, search for '{query}', extract job listings, "
+                           f"then use add-candidate to store matches with rationale.",
+        }, indent=2))
+        return
+
+    # API sources — search and return raw results for agent evaluation
     jobs = search_platform(source, profile_terms)
 
     print(json.dumps({
