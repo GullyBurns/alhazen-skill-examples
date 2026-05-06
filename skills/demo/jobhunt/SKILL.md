@@ -93,23 +93,78 @@ uv run python .claude/skills/jobhunt/jobhunt.py create-seeker-profile \
 
 This creates a `jhunt-job-seeker-role` entity linked to the person via `alh-role-bearing`. All pipeline data (opportunities, skills, candidates) scopes to this role.
 
-### Add Your Skills
+### Build the Skill Profile
 
-Skills are linked to the seeker role via `jhunt-seeker-has-skill`:
+Skills are owned by the seeker role, derived from real evidence, and use a simplified Bloom's taxonomy for proficiency levels.
+
+**Proficiency levels:**
+| Level | Meaning | Evidence type | Interview readiness |
+|-------|---------|---------------|-------------------|
+| `expert` | Can design/teach | Publications, architected systems, led teams | Can whiteboard, critique alternatives |
+| `practiced` | Hands-on experience | Projects, production use, coursework | Can walk through how you used it |
+| `aware` | Conceptual knowledge | Read papers/docs, attended talks | Can answer "what is X" questions |
+| `none` | Not known | No evidence | Cannot discuss |
+
+#### Step 1: Ingest Profile Artifacts
+
+The agent ingests the seeker's professional artifacts as sources of evidence. Each artifact is stored and linked to the seeker via `alh-aboutness` so skills can trace back to their proof.
+
+```bash
+# Ingest LinkedIn profile (save page HTML or use Playwright MCP to capture)
+uv run python .claude/skills/jobhunt/jobhunt.py ingest-job \
+    --url "https://linkedin.com/in/username"
+
+# Ingest resume (PDF or text)
+# Upload or paste resume content, agent stores as jhunt-resume artifact
+
+# Ingest ORCID profile
+# Agent fetches via WebFetch and stores key publications/experience
+
+# Ingest Google Scholar page
+# Agent fetches and extracts publication list, h-index, citation metrics
+```
+
+The agent should fetch each source, extract the content, and store it as an artifact linked to the seeker role via `alh-aboutness`. This creates the evidence chain: artifact → seeker → skill.
+
+#### Step 2: Sensemaking Interview
+
+The agent reads the ingested artifacts and conducts a structured interview with the seeker:
+- "Tell me about your TypeDB experience — what have you built?"
+- "How deep is your AWS knowledge — have you architected solutions or followed tutorials?"
+- "What's your biomedical ontology experience — which ones have you used?"
+
+For each skill identified, the agent assesses the proficiency level based on the evidence and discussion.
+
+#### Step 3: Create Skills with Evidence
 
 ```bash
 uv run python .claude/skills/jobhunt/jobhunt.py add-skill \
-    --name "Python" --level "strong"
+    --name "Knowledge Graphs" --level "expert" \
+    --evidence "Built 5000+ entity TypeDB production KG, BFO/UFO ontology design" \
+    --recency "daily 2026" \
+    --description "TypeDB 3.x, TypeQL, schema evolution, GLAV mapping"
 
 uv run python .claude/skills/jobhunt/jobhunt.py add-skill \
-    --name "TypeDB" --level "strong" \
-    --description "Schema design, TypeQL queries, migration tooling"
+    --name "RAG Pipelines" --level "expert" \
+    --evidence "Voyage AI + Qdrant in production, hybrid ontology-filtered retrieval" \
+    --recency "daily 2026"
 
 uv run python .claude/skills/jobhunt/jobhunt.py add-skill \
-    --name "Rust" --level "learning"
+    --name "Pharma Experience" --level "none" \
+    --description "No direct pharma industry experience. Biomedical informatics at CZI."
 ```
 
-**Skill levels:** `strong` | `some` | `learning` | `none`
+Each skill is linked to the seeker via `jhunt-seeker-has-skill`. The `--evidence` field should reference the ingested artifacts where possible.
+
+#### Step 4: Gap Analysis
+
+Once skills are populated, gap analysis joins seeker skills against position requirements:
+- Position requires "RAG Pipelines" at "required" level → seeker has it at "expert" → no gap
+- Position requires "Pharma Experience" at "preferred" level → seeker has "none" → gap
+
+```bash
+uv run python .claude/skills/jobhunt/jobhunt.py show-gaps
+```
 
 ### View Your Skills
 
@@ -783,7 +838,7 @@ uv run python .claude/skills/jobhunt/jobhunt.py update-opportunity \
 | Command | Description | Key Args |
 |---------|-------------|----------|
 | `ingest-job` | Fetch job URL, store raw | `--url` |
-| `add-skill` | Add to your skill profile | `--name`, `--level` |
+| `add-skill` | Add/update skill with Bloom's proficiency | `--name`, `--level` (expert/practiced/aware/none), `--evidence`, `--recency` |
 | `list-skills` | Show your skills | |
 | `list-artifacts` | List artifacts by status | `--status` |
 | `show-artifact` | Get artifact content | `--id` |

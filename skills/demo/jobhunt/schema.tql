@@ -71,6 +71,8 @@ attribute jhunt-priority-level, value string;
 
 # Your skill profile attributes
 attribute jhunt-last-updated, value datetime;
+attribute jhunt-skill-evidence, value string;
+attribute jhunt-skill-recency, value string;
 
 # Forager attributes (automated job discovery)
 attribute jhunt-board-token, value string;
@@ -155,9 +157,14 @@ entity jhunt-job-seeker-role sub alh-role,
     plays jhunt-seeker-has-skill:seeker;
 
 # JHUNT-YOUR-SKILL - Personal skill/capability for gap analysis
+# Level uses simplified Bloom's taxonomy: none | aware | practiced | expert
+# Evidence: what proves this level (project URL, publication, years of experience)
+# Recency: when last used ("daily 2026", "used 2019-2022", "studied 2024")
 entity jhunt-your-skill sub alh-domain-thing,
     owns jhunt-skill-name,
     owns jhunt-skill-level,
+    owns jhunt-skill-evidence,
+    owns jhunt-skill-recency,
     owns jhunt-last-updated,
     plays jhunt-seeker-has-skill:skill;
 
