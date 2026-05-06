@@ -1,0 +1,58 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "alhazen-skill-coach"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "typedb-driver" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "typedb-driver", specifier = ">=3.8.0" }]
+
+[package.metadata.requires-dev]
+dev = []
+
+[[package]]
+name = "parse"
+version = "1.18.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/49/85f19d9ff908817b864deebf7f68211f9a6fc0b48746d372d970f60d01f5/parse-1.18.0.tar.gz", hash = "sha256:91666032d6723dc5905248417ef0dc9e4c51df9526aaeef271eacad6491f06a4", size = 30314, upload-time = "2020-09-10T23:35:33.943Z" }
+
+[[package]]
+name = "typedb-driver"
+version = "3.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "parse" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/4a/adaca8496d97caef6a3631f75331095e82b2360e1e83a4c7ebcdb5423f41/typedb_driver-3.10.0-py310-none-macosx_11_0_arm64.whl", hash = "sha256:acebaeda49e959c9f57eba383d7fa867085ea7634b44caf643311bad4b28fb10", size = 5419643, upload-time = "2026-04-22T16:41:06.794Z" },
+    { url = "https://files.pythonhosted.org/packages/17/40/7785ef709e01c5339c32745eee2332bb6a85d00e9590015c0fb3a6545244/typedb_driver-3.10.0-py310-none-macosx_11_0_x86_64.whl", hash = "sha256:d10c909691fe97d7ea4f54dbb5456300deb489dec9db5f2aed40d7d028c35d54", size = 5541171, upload-time = "2026-04-22T16:55:50.285Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/b1/6f0792186580d588223be2fd2df08ce44c494b83a76685e01bf9e0593985/typedb_driver-3.10.0-py310-none-manylinux_2_17_aarch64.whl", hash = "sha256:ec8fbd527891289626cf2030dddfa3fd9bd3c745d9cbdb411cd1857057f32a41", size = 6941239, upload-time = "2026-04-22T16:54:12.621Z" },
+    { url = "https://files.pythonhosted.org/packages/83/1d/5f0d856d681584e46e72b582c0c43adf58bfd72fa95e6fb201fb4b5ffb87/typedb_driver-3.10.0-py310-none-manylinux_2_17_x86_64.whl", hash = "sha256:3af34eff2acc06eaad08dc6a254f7cd13320f069bcd08a05c6c6f619aa0038dc", size = 7148876, upload-time = "2026-04-22T16:48:18.326Z" },
+    { url = "https://files.pythonhosted.org/packages/56/62/8da8e1b22aae9adff72a7c065c74b72c224654666124023e68f485bc049c/typedb_driver-3.10.0-py310-none-win_amd64.whl", hash = "sha256:ccdde41ce86eb79cf09a8305854c3b82a4449a6a5afe65da9e5e1f2e40d4de80", size = 3177331, upload-time = "2026-04-22T16:51:20.924Z" },
+    { url = "https://files.pythonhosted.org/packages/01/f6/c01f326cd4129f827829ceb86f3fcac3e09bd26d3ffec2f40b6b75946f09/typedb_driver-3.10.0-py311-none-macosx_11_0_arm64.whl", hash = "sha256:5fa754d97a183742d4db90d85443b574e8203357983fefef257020155c083d0f", size = 5419651, upload-time = "2026-04-22T16:41:14.508Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/94/7680d7b00dd924047c7b3d9150a4d47eac66b7ba5726e6575f99a40e76d4/typedb_driver-3.10.0-py311-none-macosx_11_0_x86_64.whl", hash = "sha256:4bc61002fbc437cd2a5d78853172b0e771513edd500bcc6d154955fe1f372851", size = 5541168, upload-time = "2026-04-22T16:56:06.592Z" },
+    { url = "https://files.pythonhosted.org/packages/93/77/8bf99b1daeddccb38a588caf2d1f96e965fc6972b7908107c7cc55ef614d/typedb_driver-3.10.0-py311-none-manylinux_2_17_aarch64.whl", hash = "sha256:e68691f7d5ffc0c3cf281aab13fc11a15caf58c26756862727f98e7bf005afed", size = 6941523, upload-time = "2026-04-22T16:54:32.736Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/80/744eae307a4a0edd7fcffb9e5dcd2efc6dee0c73457b174a6e513b903479/typedb_driver-3.10.0-py311-none-manylinux_2_17_x86_64.whl", hash = "sha256:92d64539a7df746662abb733b4c447c0c88b22b8f3bc1145d9a5d93e0a4290f0", size = 7148361, upload-time = "2026-04-22T16:48:43.293Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/5d/438b506af0dc2712a10ac05c9e58b5cdbcee87ac571cd6c689b3d09ce648/typedb_driver-3.10.0-py311-none-win_amd64.whl", hash = "sha256:f94a6418b719a9928e99f7c43223318a5e74217e3703c26bb83e041a145a8122", size = 3177162, upload-time = "2026-04-22T16:52:06.897Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/4b/73c3cc6e821997824d37dcf63a0211208f50c51d22498a77f1a94f18ef36/typedb_driver-3.10.0-py312-none-macosx_11_0_arm64.whl", hash = "sha256:fb32bb7c3d826c7cb45100f21dffd0c354f975b8ec6d046586e0596704acf963", size = 5420247, upload-time = "2026-04-22T16:41:22.427Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/12/5f8d19ff4a46c55f0976bce6a14cc50e5f9056cc1326134719dc5a3d4e91/typedb_driver-3.10.0-py312-none-macosx_11_0_x86_64.whl", hash = "sha256:626f5729d8cb8191bbaa3e1f851e43dc2bb85487d749faf81c426579d61c8237", size = 5541907, upload-time = "2026-04-22T16:56:24.275Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/69/d53e10db561b76753b5697630a0de16d128add91041d2d9e66807baabdf7/typedb_driver-3.10.0-py312-none-manylinux_2_17_aarch64.whl", hash = "sha256:98fea7a4eb06af6b11618a7a10aeb485a4e838639adbbfe960a4ecb6042acbc1", size = 6941711, upload-time = "2026-04-22T16:54:54.751Z" },
+    { url = "https://files.pythonhosted.org/packages/08/57/4c34c7d5d5caf2c96bb72e47c58776da39048f1b8e285fa3df2546cd96c5/typedb_driver-3.10.0-py312-none-manylinux_2_17_x86_64.whl", hash = "sha256:7f28a7da36b445d963b8f4c4a0002b247af25a79fa1c110a94640d711afca0a1", size = 7148106, upload-time = "2026-04-22T16:49:11.562Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/06/18a01c1da86ec1df6c1ce3a2a4ad8f42ee4ec8541ef7018c2ea69046e473/typedb_driver-3.10.0-py312-none-win_amd64.whl", hash = "sha256:54c07ea6b57878dc52406d8d78a24249978abd4983a3a4b473559c56bdd9d08a", size = 3177779, upload-time = "2026-04-22T16:52:56.481Z" },
+    { url = "https://files.pythonhosted.org/packages/48/7d/5c7baa663868a26614c83ed4928a206f27b5ce9ab059b1fe3c67e3c761d9/typedb_driver-3.10.0-py313-none-macosx_11_0_arm64.whl", hash = "sha256:47bb9ab32e6c6a0ee3a19a1517ad910d731a69c3caf1fc323a7b0c934696df93", size = 5420249, upload-time = "2026-04-22T16:41:30.17Z" },
+    { url = "https://files.pythonhosted.org/packages/88/9f/0d1e78138e14493e359a65f94539435c00f25dba429ba21df7fd7c1d3794/typedb_driver-3.10.0-py313-none-macosx_11_0_x86_64.whl", hash = "sha256:4c7d10345fb380dfa92663e3887c46a37565537fbf935ce5154a3d54af7da13d", size = 5541901, upload-time = "2026-04-22T16:56:42.556Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/77/f4b6d9e304e3b289ac4f2fa271152f813ee60fd3ebea7c3d57f507d7e6f7/typedb_driver-3.10.0-py313-none-manylinux_2_17_aarch64.whl", hash = "sha256:a4713d42ec3018c4d85160f16295b308fccddf28044be68db9583c1377efe1ca", size = 6941659, upload-time = "2026-04-22T16:55:16.931Z" },
+    { url = "https://files.pythonhosted.org/packages/37/6f/5f4d0aa3128a74ce61f4a386ac4762c69b285a72204a0da4342180174d5a/typedb_driver-3.10.0-py313-none-manylinux_2_17_x86_64.whl", hash = "sha256:ac2299613ee8b4d3be0bf74138b10b9ee3d8944056cc427b866e63eb2bee4b75", size = 7148170, upload-time = "2026-04-22T16:49:38.705Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/d0/aedc0632097c726a48b3cfe60dab92ea56a80e168c9680ed3373eadce0a8/typedb_driver-3.10.0-py313-none-win_amd64.whl", hash = "sha256:cbe85d11c0a14cc80619e8e0edd02a85d8257e9f39b3996208da35472434ff42", size = 3177892, upload-time = "2026-04-22T16:53:48.666Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/c7/d3c63dc0b9a6ad1df5c79bb39b48078eaa069e754013269e3e0a9a740fb0/typedb_driver-3.10.0-py39-none-macosx_11_0_arm64.whl", hash = "sha256:b3d81992e05ce9c7f70662fd01edc8bccbb80ea66201b4b3c5072f1e546873fe", size = 5419323, upload-time = "2026-04-22T16:40:57.531Z" },
+    { url = "https://files.pythonhosted.org/packages/08/0b/5334841784399952d4fa84211a7fbfda6a5454dacd004446cbae58fbdaab/typedb_driver-3.10.0-py39-none-macosx_11_0_x86_64.whl", hash = "sha256:d3c6dde601197626e8d651292485dc1a9ab1f0fc68397154dc2c6597ed3672fb", size = 5541091, upload-time = "2026-04-22T16:55:25.159Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/c5/8387409805eb350248d1e375bd26cd763c46014dab211a380043ae77c494/typedb_driver-3.10.0-py39-none-manylinux_2_17_aarch64.whl", hash = "sha256:4050669631df77827853d7c43c3b17a9c3a14534b8584833d77f9b6b681e72e3", size = 6941496, upload-time = "2026-04-22T16:53:47.555Z" },
+    { url = "https://files.pythonhosted.org/packages/40/ef/c7c638de9119b2613a4930239b5867aef9107d38308571d00a47cf373b82/typedb_driver-3.10.0-py39-none-manylinux_2_17_x86_64.whl", hash = "sha256:79bd371303580438929ec671e0af07e3695e0edb3db7e0835fc92fbf9e622c28", size = 7148466, upload-time = "2026-04-22T16:47:50.038Z" },
+    { url = "https://files.pythonhosted.org/packages/23/ec/44121d9f8e29dce3ffd59dcdf8bdf8245c76dc953dbbb36b5eaba2679d54/typedb_driver-3.10.0-py39-none-win_amd64.whl", hash = "sha256:edc91c50a076e25b09d6e5142d8ac8bdae9276b14dee49cf5973b2ca5a587e7f", size = 3177050, upload-time = "2026-04-22T16:50:23.061Z" },
+]

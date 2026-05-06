@@ -1869,18 +1869,21 @@ def cmd_show_gaps(args):
                 fetch { "name": $sn, "level": $sl };"""
             skill_results = list(tx.query(skills_query).resolve())
 
-            # 2. Get all requirements for non-rejected/withdrawn positions
-            req_query = """match
+            # 2. Get all requirements for positions past researching
+            # Default: exclude "researching" (show applied, interviewing, rejected, withdrawn)
+            # --all: include everything
+            include_all = hasattr(args, 'all') and args.all
+            status_filter = '' if include_all else '''
+                not { $status == "researching"; };'''
+            req_query = f"""match
                 $r isa jhunt-requirement, has jhunt-skill-name $sn, has jhunt-skill-level $sl;
                 (requirement: $r, position: $p) isa jhunt-requirement-for;
                 (note: $n, subject: $p) isa alh-aboutness;
-                $n isa jhunt-application-note, has jhunt-application-status $status;
-                not { $status == "rejected"; };
-                not { $status == "withdrawn"; };
-            fetch {
+                $n isa jhunt-application-note, has jhunt-application-status $status;{status_filter}
+            fetch {{
                 "skill": $sn, "level": $sl,
                 "pos-id": $p.id, "pos-name": $p.name
-            };"""
+            }};"""
             req_results = list(tx.query(req_query).resolve())
 
             # 3. Get alt-labels for concept matching
@@ -3385,6 +3388,9 @@ def main():
     p = subparsers.add_parser("show-gaps", help="Show skill gaps")
     p.add_argument(
         "--priority", choices=["high", "medium", "low"], help="Filter by position priority"
+    )
+    p.add_argument(
+        "--all", action="store_true", help="Include researching positions (default: only past researching)"
     )
 
     # learning-plan

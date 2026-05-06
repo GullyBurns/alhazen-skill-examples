@@ -36,6 +36,11 @@
       "name": "literature-trends",
       "source": "./skills/biomed/literature-trends",
       "description": "Abductive argumentation-based literature trend analysis across tagged literature threads"
+    },
+    {
+      "name": "coach",
+      "source": "./skills/health/coach",
+      "description": "Personal health & fitness monitoring — ingest HealthKit metrics, track goals, surface regressions, manage appointments"
     }
   ]
 }

@@ -42,10 +42,12 @@ export default function MissionControl() {
   }, [fetchItems]);
 
   // Visible items: if list has set filteredIds, use that; otherwise show all non-excluded
+  // Selected items always stay visible (map selection overrides status filter)
   const visibleIds = new Set(
     items
       .filter(item => !excludeIds.has(item.id))
       .filter(item => {
+        if (selectedIds.has(item.id)) return true; // selected items always visible
         if (filteredIds) return filteredIds.has(item.id);
         // No explicit filter yet — show all (list will fire onFilterChange shortly)
         return true;
@@ -57,7 +59,8 @@ export default function MissionControl() {
   // Status counts
   const statusCounts: Record<string, number> = {};
   visibleItems.forEach(item => {
-    statusCounts[item.status] = (statusCounts[item.status] || 0) + 1;
+    const s = item.status || 'unknown';
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
   });
 
   const handleMapSelect = useCallback((ids: string[]) => {
@@ -80,7 +83,7 @@ export default function MissionControl() {
     } else {
       setFilteredIds(ids);
     }
-    setSelectedIds(new Set()); // clear selection when filter changes
+    // Don't clear selection — filter and selection are independent
   }, [items, excludeIds]);
 
   const handleReset = useCallback(() => {
