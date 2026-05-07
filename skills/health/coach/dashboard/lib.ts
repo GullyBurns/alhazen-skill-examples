@@ -88,6 +88,34 @@ export async function getRecommendations() {
   return runCoach(['list-recommendations']);
 }
 
+// --- Assessments ---
+
+export async function getAssessments() {
+  return runCoach(['list-assessments']);
+}
+
+export async function getAssessment(id: string) {
+  return runCoach(['show-assessment', '--id', id]);
+}
+
+// --- Nutrition ---
+
+export async function getNutritionSummary(days = 7) {
+  return runCoach(['nutrition-summary', '--days', String(days)]);
+}
+
+// --- Labs ---
+
+export async function getLabs() {
+  return runCoach(['list-labs']);
+}
+
+// --- Support Team ---
+
+export async function getSupportTeam() {
+  return runCoach(['list-support-team']);
+}
+
 // --- Profile ---
 
 export async function getProfile() {

@@ -59,6 +59,18 @@ async function runForager(args: string[]): Promise<unknown> {
   return JSON.parse(stdout);
 }
 
+export async function listSources() {
+  return runForager(['list-sources']);
+}
+
+export async function listSkills() {
+  return runJobhunt(['list-skills']);
+}
+
+export async function searchSource(source: string) {
+  return runForager(['search-source', '--source', source]);
+}
+
 export async function listCandidates(status?: string, limit?: number, offset?: number) {
   const args = ['list-candidates'];
   if (status) args.push('--status', status);
@@ -87,8 +99,9 @@ export async function listPipeline(filters?: {
   return runJobhunt(args);
 }
 
-export async function getSkillGaps(priority?: string) {
+export async function getSkillGaps(priority?: string, all?: boolean) {
   const args = ['show-gaps'];
+  if (all) args.push('--all');
   if (priority) args.push('--priority', priority);
   return runJobhunt(args);
 }

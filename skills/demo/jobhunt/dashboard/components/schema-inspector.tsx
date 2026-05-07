@@ -26,38 +26,38 @@ export function SchemaTag({ type, onOpen }: SchemaTagProps) {
 
 const ENTITIES = [
   { cat: 'Opportunity types', items: [
-    { name: 'jobhunt-position', parent: 'jobhunt-opportunity', attrs: 'id, name, status, url, location, salary-range, work-type' },
-    { name: 'jobhunt-engagement', parent: 'jobhunt-opportunity', attrs: 'id, name, status, engagement-type' },
-    { name: 'jobhunt-venture', parent: 'jobhunt-opportunity', attrs: 'id, name, status, stage' },
-    { name: 'jobhunt-lead', parent: 'jobhunt-opportunity', attrs: 'id, name, status, source' },
+    { name: 'jhunt-position', parent: 'jhunt-opportunity', attrs: 'id, name, status, url, location, jhunt-salary-range, work-type' },
+    { name: 'jhunt-engagement', parent: 'jhunt-opportunity', attrs: 'id, name, status, jhunt-engagement-type' },
+    { name: 'jhunt-venture', parent: 'jhunt-opportunity', attrs: 'id, name, status, stage' },
+    { name: 'jhunt-lead', parent: 'jhunt-opportunity', attrs: 'id, name, status, source' },
   ]},
   { cat: 'Note types', items: [
-    { name: 'jobhunt-application-note', parent: 'note', attrs: 'id, content, created-at' },
-    { name: 'jobhunt-research-note', parent: 'note', attrs: 'id, content, created-at' },
-    { name: 'jobhunt-fit-analysis-note', parent: 'note', attrs: 'id, content, created-at' },
-    { name: 'jobhunt-interview-note', parent: 'note', attrs: 'id, content, created-at' },
-    { name: 'jobhunt-interaction-note', parent: 'note', attrs: 'id, content, created-at' },
-    { name: 'jobhunt-strategy-note', parent: 'note', attrs: 'id, content, created-at' },
-    { name: 'jobhunt-skill-gap-note', parent: 'note', attrs: 'id, content, created-at' },
-    { name: 'jobhunt-cc-brief-note', parent: 'note', attrs: 'id, content, created-at' },
-    { name: 'jobhunt-cc-feedback-note', parent: 'note', attrs: 'id, content, created-at' },
-    { name: 'jobhunt-dashboard-state-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-application-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-research-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-fit-analysis-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-interview-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-interaction-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-strategy-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-skill-gap-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-cc-brief-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-cc-feedback-note', parent: 'note', attrs: 'id, content, created-at' },
+    { name: 'jhunt-dashboard-state-note', parent: 'note', attrs: 'id, content, created-at' },
   ]},
   { cat: 'Supporting types', items: [
-    { name: 'jobhunt-company', parent: 'organization', attrs: 'id, name, linkedin-url, company-url, location, industry' },
-    { name: 'jobhunt-contact', parent: 'person', attrs: 'id, name, email-address, linkedin-url, contact-role' },
-    { name: 'jobhunt-requirement', parent: 'domain-thing', attrs: 'id, name, description, requirement-type' },
-    { name: 'jobhunt-learning-resource', parent: 'domain-thing', attrs: 'id, name, url, resource-type' },
-    { name: 'your-skill', parent: 'domain-thing', attrs: 'id, name, description, proficiency' },
+    { name: 'jhunt-company', parent: 'organization', attrs: 'id, name, alh-linkedin-url, alh-company-url, location, industry' },
+    { name: 'jhunt-contact', parent: 'person', attrs: 'id, name, alh-email-address, alh-linkedin-url, jhunt-contact-role' },
+    { name: 'jhunt-requirement', parent: 'alh-domain-thing', attrs: 'id, name, description, requirement-type' },
+    { name: 'jhunt-learning-resource', parent: 'alh-domain-thing', attrs: 'id, name, url, jhunt-resource-type' },
+    { name: 'jhunt-your-skill', parent: 'alh-domain-thing', attrs: 'id, name, description, proficiency' },
   ]},
 ];
 
 const RELATIONS = [
   { name: 'aboutness', roles: 'note: $n, subject: $s', desc: 'links any note to any entity' },
-  { name: 'position-at-company', roles: 'position: $p, employer: $c', desc: 'jobhunt-position ↔ jobhunt-company' },
-  { name: 'works-at', roles: 'employee: $p, employer: $o', desc: 'person ↔ organization' },
-  { name: 'collection-membership', roles: 'collection: $col, member: $m', desc: 'groups entities into collections' },
-  { name: 'interaction-participation', roles: 'interaction: $i, participant: $p', desc: 'interaction ↔ person' },
+  { name: 'jhunt-position-at-company', roles: 'position: $p, employer: $c', desc: 'jhunt-position ↔ jhunt-company' },
+  { name: 'alh-works-at', roles: 'employee: $p, employer: $o', desc: 'person ↔ organization' },
+  { name: 'alh-collection-membership', roles: 'collection: $col, member: $m', desc: 'groups entities into collections' },
+  { name: 'alh-interaction-participation', roles: 'interaction: $i, participant: $p', desc: 'interaction ↔ person' },
 ];
 
 const CMDS = [
