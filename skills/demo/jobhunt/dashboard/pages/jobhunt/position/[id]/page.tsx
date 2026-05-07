@@ -95,9 +95,27 @@ export default function PositionPage({ params }: PositionPageProps) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/jobhunt/position/${id}`);
-        if (!res.ok) throw new Error('Failed to fetch position');
-        const json = await res.json();
+        const [posRes, skillsRes] = await Promise.all([
+          fetch(`/api/jobhunt/position/${id}`),
+          fetch('/api/jobhunt/skills'),
+        ]);
+        if (!posRes.ok) throw new Error('Failed to fetch position');
+        const json = await posRes.json();
+        // Enrich requirements with seeker skill levels
+        if (skillsRes.ok) {
+          const skillsData = await skillsRes.json();
+          const mySkills: Record<string, string> = {};
+          for (const s of (skillsData.skills ?? [])) {
+            mySkills[s.name.toLowerCase()] = s.level;
+          }
+          // Attach seeker level to each requirement
+          if (json.requirements) {
+            for (const req of json.requirements) {
+              const skillName = req['jhunt-skill-name'] || req['slog-skill-name'] || '';
+              req['_seeker_level'] = mySkills[skillName.toLowerCase()] || 'none';
+            }
+          }
+        }
         setData(json);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -142,38 +160,38 @@ export default function PositionPage({ params }: PositionPageProps) {
 
   // Extract position fields
   const title = getValue(position?.name) || 'Unknown Position';
-  const url = getValue(position?.['job-url']);
+  const url = getValue(position?.['jhunt-job-url']);
   const location = getValue(position?.location);
-  const salary = getValue(position?.['salary-range']);
-  const remotePolicy = getValue(position?.['remote-policy']);
-  const priority = getValue(position?.['priority-level']);
+  const salary = getValue(position?.['jhunt-salary-range']);
+  const remotePolicy = getValue(position?.['jhunt-remote-policy']);
+  const priority = getValue(position?.['jhunt-priority-level']);
 
   // Extract company fields
   const companyName = getValue(company?.name);
-  const companyUrl = getValue(company?.['company-url']);
+  const companyUrl = getValue(company?.['alh-company-url']);
   const companyDescription = getValue(company?.description);
 
   // Find status from notes (handle both {type: {label: "..."}} and {type: "..."})
   const getNoteType = (n: any) => typeof n.type === 'string' ? n.type : n.type?.label;
   const statusNote = notes.find(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (n: any) => getNoteType(n) === 'jobhunt-application-note'
+    (n: any) => getNoteType(n) === 'jhunt-application-note'
   );
-  const status = getValue(statusNote?.['application-status']) || 'researching';
+  const status = getValue(statusNote?.['jhunt-application-status']) || 'researching';
 
   // Find fit analysis note
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fitNote = notes.find((n: any) =>
-    getNoteType(n) === 'jobhunt-fit-analysis-note'
+    getNoteType(n) === 'jhunt-fit-analysis-note'
   );
-  const fitScore = getNumber(fitNote?.['fit-score']);
-  const fitSummary = getValue(fitNote?.['fit-summary']);
+  const fitScore = getNumber(fitNote?.['jhunt-fit-score']);
+  const fitSummary = getValue(fitNote?.['jhunt-fit-summary']);
 
   // Group other notes by type
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groupedNotes = notes.reduce((acc: Record<string, any[]>, note: any) => {
     const rawType = getNoteType(note) || '';
-    const type = rawType.replace('jobhunt-', '').replace('-note', '') || 'general';
+    const type = rawType.replace('jhunt-', '').replace('-note', '') || 'general';
     if (type !== 'application' && type !== 'fit-analysis') {
       if (!acc[type]) acc[type] = [];
       acc[type].push(note);
@@ -337,17 +355,16 @@ export default function PositionPage({ params }: PositionPageProps) {
                   <div className="space-y-3">
                     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     {requirements.map((req: any, idx: number) => {
-                      const skill = getValue(req['skill-name']);
-                      const level = getValue(req['skill-level']) || getValue(req['requirement-level']);
-                      const yourLevel = getValue(req['your-level']);
+                      const skill = getValue(req['jhunt-skill-name']) || getValue(req['slog-skill-name']);
+                      const level = getValue(req['jhunt-skill-level']) || getValue(req['requirement-level']);
+                      const yourLevel = req['_seeker_level'] || getValue(req['jhunt-your-level']) || 'none';
                       const content = getValue(req.content);
 
-                      const match =
-                        yourLevel === 'strong'
-                          ? 'match'
-                          : yourLevel === 'some' || yourLevel === 'learning'
-                          ? 'partial'
-                          : 'gap';
+                      const levelValue: Record<string, number> = { none: 0, aware: 1, learning: 1, practiced: 2, some: 2, expert: 3, strong: 3 };
+                      const threshold: Record<string, number> = { required: 2, preferred: 1, 'nice-to-have': 0 };
+                      const myVal = levelValue[yourLevel] ?? 0;
+                      const reqVal = threshold[level ?? 'required'] ?? 1;
+                      const match = myVal >= reqVal ? 'match' : myVal > 0 ? 'partial' : 'gap';
 
                       return (
                         <div
@@ -473,8 +490,8 @@ export default function PositionPage({ params }: PositionPageProps) {
                   {typeNotes.map((note: any, idx: number) => {
                     const content = getValue(note.content);
                     const createdAt = getValue(note['created-at']);
-                    const interactionType = getValue(note['interaction-type']);
-                    const interactionDate = getValue(note['interaction-date']);
+                    const interactionType = getValue(note['alh-interaction-type']);
+                    const interactionDate = getValue(note['alh-interaction-date']);
 
                     return (
                       <div key={idx} className="text-sm">

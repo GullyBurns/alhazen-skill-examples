@@ -27,24 +27,24 @@ const T = {
 
 /* ── Note type config ── */
 const NOTE_TYPES: Record<string, { label: string; short: string; color: string }> = {
-  'jobhunt-application-note': { label: 'Application', short: 'APP', color: '#5aadaf' },
-  'jobhunt-research-note': { label: 'Research', short: 'RES', color: '#8ba4b8' },
-  'jobhunt-fit-analysis-note': { label: 'Fit analysis', short: 'FIT', color: '#62c4bc' },
-  'jobhunt-interview-note': { label: 'Interview', short: 'INT', color: '#5b8ab8' },
-  'jobhunt-interaction-note': { label: 'Interaction', short: 'TALK', color: '#5b8ab8' },
-  'jobhunt-strategy-note': { label: 'Strategy', short: 'STRAT', color: '#8ba4b8' },
-  'jobhunt-skill-gap-note': { label: 'Skill gap', short: 'GAP', color: '#c87a4a' },
-  'jobhunt-opp-summary-note': { label: 'Summary', short: 'SUM', color: '#b8c84a' },
-  'jobhunt-cc-brief-note': { label: 'CC brief', short: 'BRIEF', color: '#b8c84a' },
-  'jobhunt-cc-feedback-note': { label: 'Feedback', short: 'FEEDBACK', color: '#c87a4a' },
+  'jhunt-application-note': { label: 'Application', short: 'APP', color: '#5aadaf' },
+  'jhunt-research-note': { label: 'Research', short: 'RES', color: '#8ba4b8' },
+  'jhunt-fit-analysis-note': { label: 'Fit analysis', short: 'FIT', color: '#62c4bc' },
+  'jhunt-interview-note': { label: 'Interview', short: 'INT', color: '#5b8ab8' },
+  'jhunt-interaction-note': { label: 'Interaction', short: 'TALK', color: '#5b8ab8' },
+  'jhunt-strategy-note': { label: 'Strategy', short: 'STRAT', color: '#8ba4b8' },
+  'jhunt-skill-gap-note': { label: 'Skill gap', short: 'GAP', color: '#c87a4a' },
+  'jhunt-opp-summary-note': { label: 'Summary', short: 'SUM', color: '#b8c84a' },
+  'jhunt-cc-brief-note': { label: 'CC brief', short: 'BRIEF', color: '#b8c84a' },
+  'jhunt-cc-feedback-note': { label: 'Feedback', short: 'FEEDBACK', color: '#c87a4a' },
 };
 
 /* ── Kind config ── */
 const KINDS: Record<string, { label: string; short: string; color: string; showRequirements: boolean }> = {
-  'jobhunt-position': { label: 'Position', short: 'POS', color: '#5aadaf', showRequirements: true },
-  'jobhunt-engagement': { label: 'Engagement', short: 'ENG', color: '#5b8ab8', showRequirements: false },
-  'jobhunt-venture': { label: 'Venture', short: 'VEN', color: '#b8c84a', showRequirements: false },
-  'jobhunt-lead': { label: 'Lead', short: 'LED', color: '#62c4bc', showRequirements: false },
+  'jhunt-position': { label: 'Position', short: 'POS', color: '#5aadaf', showRequirements: true },
+  'jhunt-engagement': { label: 'Engagement', short: 'ENG', color: '#5b8ab8', showRequirements: false },
+  'jhunt-venture': { label: 'Venture', short: 'VEN', color: '#b8c84a', showRequirements: false },
+  'jhunt-lead': { label: 'Lead', short: 'LED', color: '#62c4bc', showRequirements: false },
 };
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -56,11 +56,11 @@ const LEVEL_COLORS: Record<string, string> = {
 
 function noteTypeMeta(type: string | undefined | null) {
   if (!type) return { label: 'note', short: '?', color: T.fgDim };
-  return NOTE_TYPES[type] || { label: type.replace(/^jobhunt-/, '').replace(/-note$/, ''), short: '?', color: T.fgDim };
+  return NOTE_TYPES[type] || { label: type.replace(/^jhunt-/, '').replace(/-note$/, ''), short: '?', color: T.fgDim };
 }
 
 function kindMeta(type: string) {
-  return KINDS[type] || KINDS['jobhunt-lead'];
+  return KINDS[type] || KINDS['jhunt-lead'];
 }
 
 function initials(name: string): string {
@@ -133,8 +133,8 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
   const kind = kindMeta(data.type || '');
 
   /* Extract summary note (shown at top, excluded from timeline) */
-  const summaryNote = notes.find((n: any) => n.type === 'jobhunt-opp-summary-note');
-  const timelineNotes = notes.filter((n: any) => n.type !== 'jobhunt-opp-summary-note');
+  const summaryNote = notes.find((n: any) => n.type === 'jhunt-opp-summary-note');
+  const timelineNotes = notes.filter((n: any) => n.type !== 'jhunt-opp-summary-note');
 
   /* Note type filter chips */
   const noteTypesPresent = [...new Set(timelineNotes.map((n: any) => n.type as string))];
@@ -147,12 +147,12 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
 
   /* ── KV row helper ── */
   const kvPairs: { label: string; value: string | null | undefined }[] = [
-    { label: 'Status', value: opp['opportunity-status'] },
-    { label: 'Priority', value: opp['priority-level'] },
+    { label: 'Status', value: opp['jhunt-opportunity-status'] },
+    { label: 'Priority', value: opp['jhunt-priority-level'] },
     { label: 'Deadline', value: opp['deadline'] },
-    { label: 'Salary', value: opp['salary-range'] },
+    { label: 'Salary', value: opp['jhunt-salary-range'] },
     { label: 'Location', value: opp['location'] },
-    { label: 'Remote', value: opp['remote-policy'] },
+    { label: 'Remote', value: opp['jhunt-remote-policy'] },
   ].filter(kv => kv.value);
 
   return (
@@ -230,10 +230,10 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
         )}
 
         {/* Job URL */}
-        {opp['job-url'] && (
+        {opp['jhunt-job-url'] && (
           <div style={{ marginTop: 12 }}>
             <a
-              href={opp['job-url']}
+              href={opp['jhunt-job-url']}
               target="_blank"
               rel="noopener noreferrer"
               style={{ fontFamily: T.mono, fontSize: 12, color: T.teal, textDecoration: 'underline', textUnderlineOffset: 3 }}
@@ -402,9 +402,9 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
 
                   {/* Type-specific extras */}
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: note.content ? 6 : 0 }}>
-                    {note['fit-score'] != null && (
+                    {note['jhunt-fit-score'] != null && (
                       <span style={{ fontFamily: T.mono, fontSize: 11, color: T.mint }}>
-                        fit: {typeof note['fit-score'] === 'number' ? (note['fit-score'] * 100).toFixed(0) + '%' : note['fit-score']}
+                        fit: {typeof note['jhunt-fit-score'] === 'number' ? (note['jhunt-fit-score'] * 100).toFixed(0) + '%' : note['jhunt-fit-score']}
                       </span>
                     )}
                     {note['contact_name'] && (
@@ -481,7 +481,7 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
                       <div style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.fg }}>
                         {c.name || 'Unknown'}
                       </div>
-                      {c['contact-role'] && (
+                      {c['jhunt-contact-role'] && (
                         <span style={{
                           fontFamily: T.mono,
                           fontSize: 10,
@@ -492,7 +492,7 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
                           padding: '1px 6px',
                           textTransform: 'uppercase',
                         }}>
-                          {c['contact-role']}
+                          {c['jhunt-contact-role']}
                         </span>
                       )}
                     </div>
@@ -513,7 +513,7 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
                 <span style={{ fontFamily: T.mono, fontSize: 10, color: T.fgFaint, textTransform: 'uppercase', letterSpacing: 0.8 }}>Yours</span>
               </div>
               {requirements.map((r: any, idx: number) => {
-                const yourColor = LEVEL_COLORS[(r['your-level'] || '').toLowerCase()] || T.fgFaint;
+                const yourColor = LEVEL_COLORS[(r['jhunt-your-level'] || '').toLowerCase()] || T.fgFaint;
                 return (
                   <div key={r.id || idx} style={{
                     display: 'grid',
@@ -522,9 +522,9 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
                     padding: '5px 0',
                     borderTop: idx > 0 ? `1px solid ${T.borderDim}` : 'none',
                   }}>
-                    <span style={{ fontFamily: T.sans, fontSize: 13, color: T.fg }}>{r['skill-name']}</span>
-                    <span style={{ fontFamily: T.mono, fontSize: 11, color: T.fgDim }}>{r['skill-level']}</span>
-                    <span style={{ fontFamily: T.mono, fontSize: 11, color: yourColor, fontWeight: 600 }}>{r['your-level'] || '-'}</span>
+                    <span style={{ fontFamily: T.sans, fontSize: 13, color: T.fg }}>{r['slog-skill-name']}</span>
+                    <span style={{ fontFamily: T.mono, fontSize: 11, color: T.fgDim }}>{r['jhunt-skill-level']}</span>
+                    <span style={{ fontFamily: T.mono, fontSize: 11, color: yourColor, fontWeight: 600 }}>{r['jhunt-your-level'] || '-'}</span>
                   </div>
                 );
               })}
