@@ -5,6 +5,11 @@ import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+/** Unescape literal \n sequences from TypeDB content before rendering as markdown. */
+function unesc(s: string | undefined | null): string {
+  return (s ?? '').replace(/\\n/g, '\n');
+}
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -337,7 +342,7 @@ export default function PositionPage({ params }: PositionPageProps) {
                   {getValue(fitNote?.content) && (
                     <div className="prose prose-sm max-w-none dark:prose-invert">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {getValue(fitNote?.content) || ''}
+                        {unesc(getValue(fitNote?.content))}
                       </ReactMarkdown>
                     </div>
                   )}
@@ -512,7 +517,7 @@ export default function PositionPage({ params }: PositionPageProps) {
                         )}
                         <div className="prose prose-sm max-w-none dark:prose-invert">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {content || ''}
+                            {unesc(content)}
                           </ReactMarkdown>
                         </div>
                         {createdAt && (

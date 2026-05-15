@@ -4,6 +4,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Link from 'next/link';
+
+/** Unescape literal \n sequences from TypeDB content before rendering as markdown. */
+function unesc(s: string | undefined | null): string {
+  return (s ?? '').replace(/\\n/g, '\n');
+}
 import { EmbeddingMap, MapItem } from '@/components/jobhunt/embedding-map';
 import { OpportunityList } from '@/components/jobhunt/opportunity-list';
 // SchemaInspector removed — use Alhazen Notebook for schema browsing
@@ -1071,7 +1076,7 @@ function LearningTab() {
             lineHeight: 1.7,
           }}>
             <div className="prose prose-sm prose-invert max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{learningPlanContent}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{unesc(learningPlanContent)}</ReactMarkdown>
             </div>
           </div>
         ) : (

@@ -5,6 +5,11 @@ import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+/** Unescape literal \n sequences from TypeDB content before rendering as markdown. */
+function unesc(s: string | undefined | null): string {
+  return (s ?? '').replace(/\\n/g, '\n');
+}
+
 /* ── Starry Night palette ── */
 const T = {
   bg: '#070d1c',
@@ -286,7 +291,7 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
                   strong: ({ children }) => <strong style={{ color: T.fg }}>{children}</strong>,
                 }}
               >
-                {summaryNote.content}
+                {unesc(summaryNote.content)}
               </ReactMarkdown>
             </div>
           </div>
@@ -440,7 +445,7 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
                           td: ({ children }) => <td style={{ border: `1px solid ${T.borderDim}`, padding: '4px 8px' }}>{children}</td>,
                         }}
                       >
-                        {note.content}
+                        {unesc(note.content)}
                       </ReactMarkdown>
                     </div>
                   )}
