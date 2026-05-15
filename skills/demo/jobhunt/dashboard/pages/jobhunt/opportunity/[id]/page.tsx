@@ -5,9 +5,24 @@ import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-/** Unescape literal \n sequences from TypeDB content before rendering as markdown. */
+/** Prepare TypeDB content for markdown rendering:
+ *  1. Unescape literal \n sequences
+ *  2. Convert bare URLs (https://...) not already in markdown links to clickable links
+ *  3. Convert bare internal paths (/skill/...) to clickable links
+ */
 function unesc(s: string | undefined | null): string {
-  return (s ?? '').replace(/\\n/g, '\n');
+  let text = (s ?? '').replace(/\\n/g, '\n');
+  // Convert bare URLs not already inside markdown link syntax [...](...) or <...>
+  text = text.replace(
+    /(?<!\]\()(?<!\()(?<![<"'])(https?:\/\/[^\s)>\]"']+)/g,
+    '[$1]($1)'
+  );
+  // Convert bare internal paths like /tech-recon/investigation/... to links
+  text = text.replace(
+    /(?<!\]\()(?<!\()(?<![<"'])(?:^|(?<=\s))(\/(?:tech-recon|jobhunt|dismech|agentic-memory|coach|skill-builder)\/[^\s)>\]"']+)/gm,
+    '[$1]($1)'
+  );
+  return text;
 }
 
 /* ── Starry Night palette ── */
