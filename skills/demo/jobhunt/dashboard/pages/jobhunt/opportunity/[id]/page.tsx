@@ -197,9 +197,17 @@ export default function OpportunityDossierPage({ params }: OpportunityPageProps)
 
         {/* Description */}
         {opp.description && (
-          <p style={{ fontSize: 13.5, color: T.fgDim, margin: '8px 0 0', lineHeight: 1.55, maxWidth: 720 }}>
-            {opp.description}
-          </p>
+          <div style={{ fontSize: 13.5, color: T.fgDim, margin: '8px 0 0', lineHeight: 1.55, maxWidth: 720 }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}
+              components={{
+                p: ({ children }) => <p style={{ margin: '4px 0' }}>{children}</p>,
+                a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: T.teal, textDecoration: 'underline', textUnderlineOffset: 3 }}>{children}</a>,
+                strong: ({ children }) => <strong style={{ color: T.fg }}>{children}</strong>,
+              }}
+            >
+              {unesc(opp.description)}
+            </ReactMarkdown>
+          </div>
         )}
 
         {/* Status row */}

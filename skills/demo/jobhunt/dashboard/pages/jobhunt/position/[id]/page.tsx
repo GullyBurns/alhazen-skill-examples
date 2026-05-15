@@ -422,7 +422,11 @@ export default function PositionPage({ params }: PositionPageProps) {
                 </CardHeader>
                 <CardContent>
                   {companyDescription && (
-                    <p className="text-sm">{companyDescription}</p>
+                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {unesc(companyDescription)}
+                      </ReactMarkdown>
+                    </div>
                   )}
                   {companyUrl && (
                     <a
