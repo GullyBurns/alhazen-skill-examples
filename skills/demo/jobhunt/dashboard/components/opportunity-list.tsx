@@ -501,7 +501,7 @@ export function OpportunityList({ items, visibleIds, selectedId, onSelect, onFil
                 <div
                   onClick={(e) => {
                     e.stopPropagation();
-                    router.push(`/jobhunt/opportunity/${item.id}`);
+                    router.push(item.type === 'position' ? `/jobhunt/position/${item.id}` : `/jobhunt/opportunity/${item.id}`);
                   }}
                   style={{
                     marginTop: '6px',
