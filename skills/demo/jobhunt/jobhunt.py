@@ -234,6 +234,14 @@ def get_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def resolve_content(args):
+    """Resolve content from --content or --content-file. Mutually exclusive."""
+    if getattr(args, 'content_file', None):
+        with open(args.content_file, "r") as f:
+            return f.read()
+    return getattr(args, 'content', None)
+
+
 def parse_date(date_str: str) -> str:
     """Parse various date formats to TypeDB datetime."""
     for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%d/%m/%Y"]:
@@ -690,6 +698,11 @@ def cmd_set_short_name(args):
 
 def cmd_add_note(args):
     """Create a note about any entity."""
+    content = resolve_content(args)
+    if not content:
+        print(json.dumps({"success": False, "error": "Provide either --content or --content-file"}))
+        return
+
     note_id = args.id or generate_id("note")
     timestamp = get_timestamp()
 
@@ -710,7 +723,7 @@ def cmd_add_note(args):
 
     query = f'''insert $n isa {note_type},
         has id "{note_id}",
-        has content "{escape_string(args.content)}",
+        has content "{escape_string(content)}",
         has created-at {timestamp}'''
 
     if args.name:
@@ -720,19 +733,19 @@ def cmd_add_note(args):
 
     # Type-specific attributes
     if args.type == "interaction":
-        if args.interaction_type:
-            query += f', has alh-interaction-type "{args.interaction_type}"'
-        if args.interaction_date:
-            query += f", has alh-interaction-date {parse_date(args.interaction_date)}"
+        if getattr(args, 'alh_interaction_type', None):
+            query += f', has alh-interaction-type "{args.alh_interaction_type}"'
+        if getattr(args, 'alh_interaction_date', None):
+            query += f", has alh-interaction-date {parse_date(args.alh_interaction_date)}"
 
-    if args.type == "interview" and args.interview_date:
-        query += f", has jhunt-interview-date {parse_date(args.interview_date)}"
+    if args.type == "interview" and getattr(args, 'jhunt_interview_date', None):
+        query += f", has jhunt-interview-date {parse_date(args.jhunt_interview_date)}"
 
     if args.type == "fit-analysis":
-        if args.fit_score:
-            query += f", has jhunt-fit-score {args.fit_score}"
-        if args.fit_summary:
-            query += f', has jhunt-fit-summary "{escape_string(args.fit_summary)}"'
+        if getattr(args, 'jhunt_fit_score', None):
+            query += f", has jhunt-fit-score {args.jhunt_fit_score}"
+        if getattr(args, 'jhunt_fit_summary', None):
+            query += f', has jhunt-fit-summary "{escape_string(args.jhunt_fit_summary)}"'
 
     query += ";"
 
@@ -777,14 +790,12 @@ def cmd_add_note(args):
 
 def cmd_upsert_summary(args):
     """Create or overwrite the opportunity summary."""
-    timestamp = get_timestamp()
-    content = args.content
+    content = resolve_content(args)
+    if not content:
+        print(json.dumps({"success": False, "error": "Provide either --content or --content-file"}))
+        return
 
-    # If content is a file path, read it
-    if content.startswith("@"):
-        filepath = content[1:]
-        with open(filepath, "r") as f:
-            content = f.read()
+    timestamp = get_timestamp()
 
     with get_driver() as driver:
         # Check for existing brief
@@ -1714,13 +1725,13 @@ def cmd_show_position(args):
             # Query each note subtype separately so we can return type
             # labels and type-specific attributes for the dashboard
             NOTE_TYPE_ATTRS = {
-                "jhunt-application-note": ["id", "name", "content", "jhunt-application-status", "jhunt-applied-date", "jhunt-response-date"],
-                "jhunt-fit-analysis-note": ["id", "name", "content", "jhunt-fit-score", "jhunt-fit-summary"],
-                "jhunt-interview-note": ["id", "name", "content", "jhunt-interview-date"],
-                "jhunt-interaction-note": ["id", "name", "content", "alh-interaction-type", "alh-interaction-date"],
-                "jhunt-research-note": ["id", "name", "content"],
-                "jhunt-strategy-note": ["id", "name", "content"],
-                "jhunt-skill-gap-note": ["id", "name", "content"],
+                "jhunt-application-note": ["id", "name", "content", "created-at", "jhunt-application-status", "jhunt-applied-date", "jhunt-response-date"],
+                "jhunt-fit-analysis-note": ["id", "name", "content", "created-at", "jhunt-fit-score", "jhunt-fit-summary"],
+                "jhunt-interview-note": ["id", "name", "content", "created-at", "jhunt-interview-date"],
+                "jhunt-interaction-note": ["id", "name", "content", "created-at", "alh-interaction-type", "alh-interaction-date"],
+                "jhunt-research-note": ["id", "name", "content", "created-at"],
+                "jhunt-strategy-note": ["id", "name", "content", "created-at"],
+                "jhunt-skill-gap-note": ["id", "name", "content", "created-at"],
             }
             notes_result = []
             for ntype, attr_list in NOTE_TYPE_ATTRS.items():
@@ -3189,7 +3200,8 @@ def main():
         ],
         help="Note type",
     )
-    p.add_argument("--content", required=True, help="Note content")
+    p.add_argument("--content", help="Note content (inline)")
+    p.add_argument("--content-file", help="Path to file containing note content")
     p.add_argument("--name", help="Note title")
     p.add_argument("--confidence", type=float, help="Confidence score (0.0-1.0)")
     p.add_argument("--tags", nargs="+", help="Tags to apply")
@@ -3203,7 +3215,8 @@ def main():
     # upsert-summary
     p = subparsers.add_parser("upsert-summary", help="Create or overwrite the opportunity summary")
     p.add_argument("--about", required=True, help="Opportunity ID")
-    p.add_argument("--content", required=True, help="Summary content (markdown). Prefix with @ to read from file")
+    p.add_argument("--content", help="Summary content (inline markdown)")
+    p.add_argument("--content-file", help="Path to file containing summary content")
 
     # regenerate-summary
     p = subparsers.add_parser("regenerate-summary", help="Fetch all notes for an opportunity (agent synthesizes summary)")
