@@ -6,15 +6,10 @@ Starts the TypeDB Docker container, creates the database, and loads the base sch
 Run this once before installing any other Alhazen skill.
 
 Usage:
-    python alhazen_core.py init      # Start TypeDB, create DB, load base schema
-    python alhazen_core.py status    # Check TypeDB container and database state
-    python alhazen_core.py reset     # Drop and recreate the database (WARNING: destroys data)
-
-Auto-schema detection:
-    If a schema.tql file exists in the same directory as this script, `init` loads
-    it automatically after the base schema. This allows a self-contained plugin bundle
-    (e.g. plugins/jobhunt/) to initialize both the base schema and its domain schema
-    in a single `init` call — no separate init-schema step needed.
+    python alhazen_core.py init                        # Start TypeDB, create DB, load base schema
+    python alhazen_core.py load-schema FILE.tql         # Load additional schema into existing DB
+    python alhazen_core.py status                       # Check TypeDB container and database state
+    python alhazen_core.py reset                        # Drop and recreate the database (WARNING: destroys data)
 
 Environment:
     TYPEDB_HOST         TypeDB host (default: localhost)
@@ -179,15 +174,18 @@ def cmd_init(args):
             # Schema may already be loaded — that's fine
             schema_result = f"already-loaded (or error: {e})"
 
-        # Step 5: Auto-load skill schema if schema.tql exists alongside this script
-        extra_schema = Path(__file__).parent / "schema.tql"
-        extra_schema_result = None
-        if extra_schema.exists():
+        # Step 5: Load extra schemas passed via --extra-schema
+        extra_results = []
+        for extra in (args.extra_schema or []):
+            extra_path = Path(extra)
+            if not extra_path.exists():
+                extra_results.append({"file": str(extra_path), "result": "not-found"})
+                continue
             try:
-                _load_extra_schema(driver, extra_schema)
-                extra_schema_result = "loaded"
+                _load_extra_schema(driver, extra_path)
+                extra_results.append({"file": str(extra_path), "result": "loaded"})
             except Exception as e:
-                extra_schema_result = f"already-loaded (or error: {e})"
+                extra_results.append({"file": str(extra_path), "result": f"already-loaded (or error: {e})"})
 
     output = {
         "success": True,
@@ -197,9 +195,8 @@ def cmd_init(args):
         "schema": schema_result,
         "message": "Alhazen core ready.",
     }
-    if extra_schema_result is not None:
-        output["extra_schema"] = extra_schema_result
-        output["message"] = "Alhazen core ready. Base schema and skill schema loaded."
+    if extra_results:
+        output["extra_schemas"] = extra_results
     print(json.dumps(output))
 
 
@@ -228,6 +225,32 @@ def cmd_status(args):
     }))
 
 
+def cmd_load_schema(args):
+    """Load an additional schema file into the existing database."""
+    schema_path = Path(args.schema_file)
+    if not schema_path.exists():
+        print(json.dumps({"success": False, "error": f"Schema file not found: {schema_path}"}))
+        sys.exit(1)
+
+    with _get_driver() as driver:
+        if not _database_exists(driver):
+            print(json.dumps({"success": False, "error": f"Database '{TYPEDB_DATABASE}' does not exist. Run 'init' first."}))
+            sys.exit(1)
+
+        try:
+            _load_extra_schema(driver, schema_path)
+            result = "loaded"
+        except Exception as e:
+            result = f"already-loaded (or error: {e})"
+
+    print(json.dumps({
+        "success": True,
+        "database": TYPEDB_DATABASE,
+        "schema_file": str(schema_path),
+        "schema": result,
+    }))
+
+
 def cmd_reset(args):
     """Drop and recreate the database. WARNING: destroys all data."""
     if not args.yes:
@@ -252,14 +275,19 @@ def main():
     parser = argparse.ArgumentParser(description="Alhazen Core — TypeDB infrastructure setup")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("init", help="Start TypeDB, create database, load base schema")
+    init_p = sub.add_parser("init", help="Start TypeDB, create database, load base schema")
+    init_p.add_argument("--extra-schema", nargs="*", help="Additional .tql schema files to load after base schema")
+
+    load_p = sub.add_parser("load-schema", help="Load a schema file into the existing database")
+    load_p.add_argument("schema_file", help="Path to the .tql schema file")
+
     sub.add_parser("status", help="Check TypeDB container and database state")
 
     reset_p = sub.add_parser("reset", help="Drop and recreate the database (destroys data)")
     reset_p.add_argument("--yes", action="store_true", help="Confirm destructive reset")
 
     args = parser.parse_args()
-    dispatch = {"init": cmd_init, "status": cmd_status, "reset": cmd_reset}
+    dispatch = {"init": cmd_init, "load-schema": cmd_load_schema, "status": cmd_status, "reset": cmd_reset}
     dispatch[args.command](args)
 
 

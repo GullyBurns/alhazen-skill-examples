@@ -10,27 +10,17 @@
     {
       "name": "alhazen-core",
       "source": "./skills/core/alhazen-core",
-      "description": "REQUIRED FIRST: Sets up TypeDB and loads the Alhazen base schema. Install this before any other Alhazen skill."
+      "description": "TypeDB infrastructure -- auto-starts via Docker, creates database, loads base schema. Install this first."
     },
     {
       "name": "jobhunt",
-      "source": "./plugins/jobhunt",
-      "description": "Job hunting notebook — track applications, skill gaps, and learning plans. Self-contained: TypeDB auto-initializes on session start."
-    },
-    {
-      "name": "they-said-whaaa",
-      "source": "./skills/journalism/they-said-whaaa",
-      "description": "Credibility and consistency tracker — ingest YouTube transcripts and news, detect contradictions"
+      "source": "./skills/demo/jobhunt",
+      "description": "Track job applications, analyze positions, identify skill gaps, and plan your job search strategy"
     },
     {
       "name": "scientific-literature",
       "source": "./skills/biomed/scientific-literature",
       "description": "Multi-source scientific literature search and ingestion (EPMC, PubMed, OpenAlex, bioRxiv)"
-    },
-    {
-      "name": "alg-precision-therapeutics",
-      "source": "./skills/biomed/alg-precision-therapeutics",
-      "description": "Rare disease mechanism investigation from MONDO diagnoses using Monarch Initiative"
     },
     {
       "name": "literature-trends",
@@ -40,7 +30,12 @@
     {
       "name": "coach",
       "source": "./skills/health/coach",
-      "description": "Personal health & fitness monitoring — ingest HealthKit metrics, track goals, surface regressions, manage appointments"
+      "description": "Personal health and fitness monitoring -- ingest HealthKit metrics, track goals, surface regressions"
+    },
+    {
+      "name": "they-said-whaaa",
+      "source": "./skills/journalism/they-said-whaaa",
+      "description": "Credibility and consistency tracker -- ingest YouTube transcripts and news, detect contradictions"
     }
   ]
 }
