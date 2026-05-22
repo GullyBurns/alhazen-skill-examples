@@ -8,11 +8,6 @@
   },
   "plugins": [
     {
-      "name": "alhazen-core",
-      "source": "./skills/core/alhazen-core",
-      "description": "TypeDB infrastructure -- auto-starts via Docker, creates database, loads base schema. Install this first."
-    },
-    {
       "name": "jobhunt",
       "source": "./skills/demo/jobhunt",
       "description": "Track job applications, analyze positions, identify skill gaps, and plan your job search strategy"
